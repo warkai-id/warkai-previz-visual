@@ -1,0 +1,259 @@
+schema: warkai-previz/1
+name: The quiet signal
+description: Dua sosok bertemu di sebuah ruang terbuka. Sebuah instalasi orbital
+  mulai bergerak.
+setting: An open concrete courtyard with two stone columns, a wooden bench and
+  an orbital sculpture. Ground plane at y=0. Units in meters.
+aspect: 16:9
+fps: 24
+light:
+  preset: golden
+  intensity: 3.5
+  azimuth: -35
+  elevation: 45
+  background: "#dedbd0"
+  ground: "#c9c3b3"
+actors:
+  - id: actor-a
+    name: A · Penjelajah
+    type: pill
+    color: "#e5aa57"
+    position:
+      - -1.9
+      - 0
+      - 0.8
+    rotation: 20
+    scale: 1
+    visible: true
+  - id: actor-b
+    name: B · Penjaga
+    type: pill
+    color: "#66959b"
+    position:
+      - 1.6
+      - 0
+      - -1.4
+    rotation: -25
+    scale: 1
+    visible: true
+  - id: bench
+    name: Bangku
+    type: bench
+    color: "#9e7e61"
+    position:
+      - -2
+      - 0
+      - -1.7
+    rotation: 0
+    scale: 1
+    visible: true
+  - id: portal
+    name: Instalasi orbital
+    type: rings
+    color: "#667879"
+    position:
+      - 1.3
+      - 0
+      - -3.6
+    rotation: 0
+    scale: 1
+    visible: true
+  - id: pillar-a
+    name: Pilar kiri
+    type: column
+    color: "#c8beab"
+    position:
+      - -4
+      - 0
+      - -3.5
+    rotation: 0
+    scale: 1
+    visible: true
+  - id: pillar-b
+    name: Pilar kanan
+    type: column
+    color: "#c8beab"
+    position:
+      - 4
+      - 0
+      - -3.5
+    rotation: 0
+    scale: 1
+    visible: true
+shots:
+  - id: shot-6fcbcea9
+    name: Sebuah pertemuan
+    duration: 6
+    size: WS
+    purpose: Establish the distance between two strangers.
+    action: The amber explorer takes two slow steps toward the teal guardian. The
+      guardian remains still.
+    sound: Subtle room tone. No dialogue or narration.
+    notes: ""
+    edit:
+      sequence_id: SQ01
+      job_id: J01
+      shot_id: 01A
+      raw_in: 0
+      raw_out: 6
+      sequence_in: 0
+    camera:
+      movement: dolly
+      easing: smooth
+      start:
+        position:
+          - 7.5
+          - 4.4
+          - 10
+        target:
+          - 0
+          - 1
+          - -0.8
+        lens: 32
+      end:
+        position:
+          - 5.8
+          - 3
+          - 8.5
+        target:
+          - 0
+          - 1
+          - -0.8
+        lens: 35
+      aperture: 2.8
+      focus: 6
+    blocking:
+      - actorId: actor-a
+        start:
+          - -1.9
+          - 0
+          - 0.8
+        end:
+          - -0.8
+          - 0
+          - 0.2
+        action: walk
+  - id: shot-7076bb91
+    name: Tatapan penjaga
+    duration: 4
+    size: MCU
+    purpose: Read the guardian’s response.
+    action: The teal guardian leans slightly forward, looking at the explorer.
+    sound: Subtle room tone. No dialogue or narration.
+    notes: ""
+    edit:
+      sequence_id: SQ01
+      job_id: J01
+      shot_id: 02A
+      raw_in: 0
+      raw_out: 4
+      sequence_in: 6
+    camera:
+      movement: dolly
+      easing: smooth
+      start:
+        position:
+          - 2.8
+          - 1.9
+          - 2
+        target:
+          - 1.6
+          - 1.35
+          - -1.4
+        lens: 65
+      end:
+        position:
+          - 2.5
+          - 1.8
+          - 1.4
+        target:
+          - 1.6
+          - 1.4
+          - -1.4
+        lens: 75
+      aperture: 2.8
+      focus: 6
+    blocking: []
+  - id: shot-3ba01013
+    name: Mengitari sinyal
+    duration: 5
+    size: MS
+    purpose: Reveal the orbital installation behind the guardian.
+    action: The orbital rings rotate slowly. Both characters hold their ground.
+    sound: Subtle room tone. No dialogue or narration.
+    notes: ""
+    edit:
+      sequence_id: SQ01
+      job_id: J01
+      shot_id: 03A
+      raw_in: 0
+      raw_out: 5
+      sequence_in: 10
+    camera:
+      movement: orbit
+      easing: smooth
+      start:
+        position:
+          - 5.8
+          - 2.9
+          - 2
+        target:
+          - 1.3
+          - 1.35
+          - -2.4
+        lens: 38
+      end:
+        position:
+          - -2.5
+          - 3.2
+          - 2.8
+        target:
+          - 1.3
+          - 1.35
+          - -2.4
+        lens: 38
+      aperture: 2.8
+      focus: 6
+    blocking: []
+  - id: shot-98eb34c1
+    name: Ruang yang terbuka
+    duration: 6
+    size: EWS
+    purpose: End on a spatial reveal.
+    action: The explorer and guardian remain facing each other as the camera rises.
+      The rings continue to rotate.
+    sound: Subtle room tone. No dialogue or narration.
+    notes: ""
+    edit:
+      sequence_id: SQ01
+      job_id: J01
+      shot_id: 04A
+      raw_in: 0
+      raw_out: 6
+      sequence_in: 15
+    camera:
+      movement: crane
+      easing: smooth
+      start:
+        position:
+          - 3.5
+          - 2.2
+          - 6
+        target:
+          - 0.3
+          - 1.1
+          - -1
+        lens: 30
+      end:
+        position:
+          - 7
+          - 9
+          - 11
+        target:
+          - 0.3
+          - 0.6
+          - -1
+        lens: 28
+      aperture: 2.8
+      focus: 6
+    blocking: []

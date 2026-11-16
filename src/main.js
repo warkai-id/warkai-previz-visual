@@ -1,0 +1,290 @@
+import './style.css';
+import { createIcons, Accessibility, Armchair, ArrowLeft, ArrowRight, ArrowUpRight, Box, Braces, Check, ChevronDown, Circle, CircleHelp, Clapperboard, Columns3, Copy, Download, Eye, EyeOff, FileCode2, Film, Focus, FolderOpen, GalleryHorizontalEnd, Grid2x2, Image, Layers3, ListVideo, Move, Orbit, Package, Pause, Pill, Play, Plus, Radar, Redo2, RotateCw, Save, Scan, SkipBack, SkipForward, SlidersHorizontal, Sofa, Sparkles, Sun, Trash2, Undo2, Upload, WandSparkles, Waypoints, X } from 'lucide';
+const icons = { Accessibility, Armchair, ArrowLeft, ArrowRight, ArrowUpRight, Box, Braces, Check, ChevronDown, Circle, CircleHelp, Clapperboard, Columns3, Copy, Download, Eye, EyeOff, FileCode2, Film, Focus, FolderOpen, GalleryHorizontalEnd, Grid2x2, Image, Layers3, ListVideo, Move, Orbit, Package, Pause, Pill, Play, Plus, Radar, Redo2, RotateCw, Save, Scan, SkipBack, SkipForward, SlidersHorizontal, Sofa, Sparkles, Sun, Trash2, Undo2, Upload, WandSparkles, Waypoints, X };
+import { parse as parseYAML, stringify as stringifyYAML } from 'yaml';
+import { PrevizEngine } from './engine.js';
+import { createDemo, makeShot, clone, uid, clamp, evaluateShot, locateShot, totalDuration, shotOffset, aspectValue, buildPrompt, projectPrompt, applyBrief, validateProject, actorPose, shotManifest, mapLocalToSequence } from './model.js';
+import { loadProject, saveProject } from './storage.js';
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const icon = (name, cls = '') => `<i data-lucide="${name}" class="${cls}"></i>`;
+const button = (name, action, title, cls = '') => `<button class="icon-btn ${cls}" data-action="${action}" title="${title}" aria-label="${title}">${icon(name)}</button>`;
+let project = createDemo();
+try { const stored = await loadProject(); if (stored) project = validateProject(stored); } catch (e) { console.warn('Project restore:', e.message); }
+let activeId = project.shots[0].id, actorId = project.actors[0]?.id, tab = 'camera', time = 0, playing = false, guides = true, grid = true, third = true, view = 'iso', recording = false;
+let history = [], future = [], saveTimer, referenceURL, exportCancelled = false;
+const current = () => project.shots.find(s => s.id === activeId) || project.shots[0];
+const actor = () => project.actors.find(a => a.id === actorId);
+function iconsRefresh() { createIcons({ icons, attrs: { 'stroke-width': 1.6 } }); }
+const timecode = (t) => { const f = Math.max(0, Math.round(t * project.fps)); return `${String(Math.floor(f / project.fps / 60)).padStart(2, '0')}:${String(Math.floor(f / project.fps) % 60).padStart(2, '0')}:${String(f % project.fps).padStart(2, '0')}`; };
+
+$('#app').innerHTML = `
+<header class="topbar"><a class="brand" href="#" aria-label="Warkai Previz Visual"><span class="brand-symbol">w</span><span>warkai<span class="brand-dot">.</span><small>PREVIZ VISUAL</small></span></a><span class="top-divider"></span><div class="project-heading"><span class="eyebrow">WORKSPACE / LOCAL STUDIO</span><button data-action="project" class="project-title" id="project-title"></button></div><div class="top-actions"><span class="local-badge"><span></span> LOCAL <span class="save-dot" id="save-state">TERSIMPAN</span></span>${button('undo-2', 'undo', 'Undo · ⌘Z')}${button('redo-2', 'redo', 'Redo · ⌘⇧Z')}<button class="button subtle" data-action="open">${icon('folder-open')} Buka</button><button class="button subtle" data-action="save">${icon('save')} Simpan JSON</button><button class="button primary" data-action="export">${icon('arrow-up-right')} Export</button></div></header>
+<nav class="navstrip"><div class="workspace-tabs"><button class="workspace-tab active" data-workspace="studio">${icon('clapperboard')} Previz studio</button><button class="workspace-tab" data-workspace="score">${icon('braces')} Blueprint</button><button class="workspace-tab" data-workspace="prompt">${icon('sparkles')} Prompt lab</button></div><div class="nav-right"><span>IDE → BLOCKING → CAMERA → GENERATE</span><button data-action="help" class="help-link">${icon('circle-help')} Panduan</button></div></nav>
+<div class="workspace"><aside class="sidebar"><div class="panel-label"><span>SCENE EXPLORER</span><span id="object-count"></span></div><div class="scene-name">${icon('layers-3')} <span id="scene-title">The quiet signal</span></div><div class="object-list" id="object-list"></div><div class="library"><div class="panel-label"><span>TAMBAH KE STAGE</span></div><div class="asset-grid">${[['pill','pill','Karakter pill'],['human','accessibility','Mannequin'],['box','box','Kubus'],['sphere','circle','Bola'],['chair','armchair','Kursi'],['bench','sofa','Bangku'],['column','columns-3','Pilar'],['rings','orbit','Orbital']].map(([type,ico,name]) => `<button data-add="${type}">${icon(ico)}<span>${name}</span></button>`).join('')}</div><button class="button full subtle" data-action="import-glb">${icon('upload')} Import model .glb</button></div><div class="sidebar-bottom"><div class="small-logo">W / PV</div><p>Rancang ruangnya.<br><strong>Arahkan ceritanya.</strong></p><span>v0.1 · Dibangun untuk Mas Ardi</span></div></aside>
+<main class="studio"><div class="studio-head"><div><span class="eyebrow">DIRECTOR'S WORKSPACE</span><h1>Make the shot. <em>Before the shot.</em></h1></div><button class="button subtle compact" data-action="demos">${icon('gallery-horizontal-end')} Demo scenes</button></div>
+<div class="monitors"><section class="panel reference-panel"><div class="panel-head"><span>${icon('film')} REFERENCE</span><button class="text-button" data-action="reference">${icon('plus')} Pilih video</button></div><div class="reference-empty" id="reference-empty"><div class="film-frame">${icon('film')}</div><strong>Mulai dari sebuah visi.</strong><span>Video referensi atau hasil generasi AI</span><button class="text-button" data-action="reference">Buka video lokal ${icon('arrow-up-right')}</button></div><video id="reference-video" controls playsinline hidden></video><div class="reference-footer"><span id="reference-name">Hanya di perangkat ini</span><button class="text-button" data-action="clear-reference" title="Hapus referensi">${icon('x')}</button></div></section>
+<section class="panel camera-panel"><div class="panel-head"><span><b class="live-dot"></b> STAGE CAMERA</span><span id="monitor-shot">SHOT 01</span></div><div class="monitor-wrap"><div id="camera-view" role="img" aria-label="Hasil pandang kamera shot aktif"></div><div class="thirds" id="thirds"><span></span><span></span><span></span><span></span></div><div class="camera-overlay"><span id="camera-size">WS</span><span id="camera-timecode">00:00:00</span></div></div><div class="camera-footer"><span id="camera-optics">35mm / f2.8</span><span>DOF: panduan</span>${button('grid-2x2','thirds','Garis komposisi')}</div></section></div>
+<section class="panel stage-panel"><div class="panel-head"><span>${icon('box')} 3D STAGE <b class="subtle-tag">BLOCKOUT</b></span><div class="stage-tools"><button class="view-button active" data-action="view-iso">${icon('box')} Diorama</button><button class="view-button" data-action="view-top">${icon('scan')} Top</button>${button('move','translate','Pindah objek · W','selected')}${button('rotate-cw','rotate','Putar objek · E')}${button('focus','align-stage','Lihat dari kamera')}${button('waypoints','guides','Tampilkan label dan jalur','selected')}${button('grid-2x2','grid','Tampilkan grid','selected')}</div></div><div class="stage-viewport"><div id="stage-view" role="img" aria-label="Stage tiga dimensi, drag untuk mengorbit dan klik objek untuk memilih"></div><div id="stage-labels"></div><div class="stage-corner"><span>Y ↑ · METER</span><span>+X → &nbsp; +Z ↙</span></div><div class="stage-hint">Drag untuk orbit <b>·</b> Scroll untuk zoom <b>·</b> Klik untuk memilih</div><span class="stage-watermark">warkai<span>.</span></span></div><div class="telemetry"><div><span>POSITION</span><strong id="tele-position"></strong></div><div><span>LENS</span><strong id="tele-lens"></strong></div><div><span>TARGET DIST.</span><strong id="tele-distance"></strong></div><div><span>ACTIVE SHOT</span><strong id="tele-shot"></strong></div></div></section>
+</main>
+<aside class="inspector"><div class="panel-label"><span>SHOT INSPECTOR</span>${icon('sliders-horizontal')}</div><div id="shot-identity"></div><div class="inspector-tabs"><button data-tab="camera" class="active">Kamera</button><button data-tab="blocking">Blocking</button><button data-tab="light">Cahaya</button><button data-tab="prompt">Prompt</button></div><div id="inspector-content"></div></aside>
+<section class="timeline-section"><div class="radar-block"><div class="mini-heading"><span>${icon('radar')} STAGE RADAR</span><span>TOP / XZ</span></div><canvas id="radar" aria-label="Radar posisi kamera dan objek"></canvas></div><div class="timeline-main"><div class="timeline-toolbar"><div class="transport">${button('skip-back','start','Kembali ke awal')}${button('play','play','Putar atau jeda · Space','play-button')}${button('skip-forward','next','Shot berikutnya')}<span id="transport-time">00:00:00</span><span class="muted" id="transport-total"></span></div><div class="timeline-toolbar-right"><span id="sequence-info"></span><button class="text-button" data-action="add-shot">${icon('plus')} Shot</button></div></div><div class="timeline-ruler" id="timeline-ruler"></div><div class="shot-track" id="shot-track"></div><input id="scrubber" type="range" aria-label="Waktu timeline" min="0" max="21" step="0.0416667" value="0"/><div class="curve-wrap"><div class="curve-legend"><span><b class="lens-key"></b> LENS</span><span><b class="distance-key"></b> DISTANCE</span></div><canvas id="curves" aria-label="Kurva panjang fokus lensa dan jarak kamera"></canvas></div></div></section>
+</div><footer class="statusbar"><span><b></b> LOCAL WORKSPACE <span class="status-separator">/</span> Three.js · WebGL</span><span id="status-detail">Siap untuk berkarya</span><span id="project-specs"></span></footer>
+<dialog id="modal"><div class="modal-header"><h2 id="modal-title"></h2>${button('x','close-modal','Tutup')}</div><div id="modal-content"></div></dialog><div id="toast" role="status"></div><input id="project-file" type="file" accept=".json,.yaml,.yml" hidden/><input id="reference-file" type="file" accept="video/*" hidden/><input id="glb-file" type="file" accept=".glb" hidden/>
+<div id="export-overlay" hidden><div class="export-progress"><span class="eyebrow">WARKAI / RENDER</span><h2>Merender previz…</h2><progress id="render-progress" max="1" value="0"></progress><p id="render-status"></p><button class="button subtle" data-action="cancel-export">Batalkan</button></div></div>`;
+
+function toast(message, error = false) { const el = $('#toast'); el.textContent = message; el.classList.toggle('error', error); el.classList.add('visible'); clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('visible'), 4800); }
+let engine;
+try { engine = new PrevizEngine($('#stage-view'), $('#camera-view'), $('#stage-labels'), (id) => { actorId = id; tab = 'blocking'; renderObjects(); renderInspector(); engine.select(actorId); }, (id, pos, rot) => {
+  mutate((p) => { const a = p.actors.find(a => a.id === id); if (!a) return; if (engine.transform.getMode() === 'rotate') a.rotation = clamp(rot, -360, 360); else {
+    const s = current(), i = p.shots.indexOf(s); let b = s.blocking.find(b => b.actorId === id);
+    if (!b) { const start = actorPose(p, i, 0, a).position; b = { actorId: id, start, end: [...start], action: 'hold' }; s.blocking.push(b); }
+    const atEnd = (time - shotOffset(p, s.id)) > s.duration / 2; b[atEnd ? 'end' : 'start'] = pos.map(n => Math.round(n * 100) / 100);
+  } }, false);
+}, (m) => toast(m, true)); } catch (e) { $('#stage-view').innerHTML = `<div class="webgl-error">WebGL tidak tersedia. Aktifkan akselerasi grafis di browser.<br>${esc(e.message)}</div>`; }
+
+function saveSoon() { $('#save-state').textContent = 'MENYIMPAN'; clearTimeout(saveTimer); saveTimer = setTimeout(async () => { try { await saveProject(clone(project)); $('#save-state').textContent = 'TERSIMPAN'; } catch { $('#save-state').textContent = 'BELUM TERSIMPAN'; toast('Autosave gagal. Gunakan Simpan JSON untuk menyimpan proyek.', true); } }, 400); }
+function mutate(fn, rebuild = true) {
+  const before = clone(project), localBefore = time - shotOffset(project, activeId);
+  try { fn(project); project = validateProject(project); history.push(before); if (history.length > 35) history.shift(); future = []; time = clamp(time, 0, totalDuration(project)); if (!project.shots.some(s => s.id === activeId)) activeId = project.shots[0].id; if (!project.actors.some(a => a.id === actorId)) actorId = project.actors[0]?.id; time = shotOffset(project, activeId) + clamp(localBefore, 0, current().duration - 1 / project.fps); refresh(rebuild); saveSoon(); }
+  catch (e) { project = before; toast(e.message, true); refresh(rebuild); }
+}
+function refresh(rebuild = true) {
+  if (engine) { if (rebuild) engine.rebuild(project); else { engine.project = project; engine.applyLighting(project.light); engine.camera.aspect = aspectValue(project.aspect); engine.pathDirty = true; } engine.select(actorId); }
+  $('#project-title').innerHTML = `${esc(project.name)} ${icon('chevron-down')}`; $('#scene-title').textContent = project.name; $('#object-count').textContent = `${project.actors.length} OBJ`;
+  $('#project-specs').textContent = `${project.aspect} / ${project.fps} FPS / ${totalDuration(project).toFixed(2)}s`;
+  renderObjects(); renderTimeline(); renderInspector(); iconsRefresh(); updateReadouts();
+}
+function renderObjects() {
+  const names = { pill: 'pill', human: 'accessibility', box: 'box', sphere: 'circle', chair: 'armchair', bench: 'sofa', column: 'columns-3', rings: 'orbit', glb: 'package' };
+  $('#object-list').innerHTML = project.actors.map(a => `<div class="object-row ${a.id === actorId ? 'active' : ''}"><button data-select-actor="${esc(a.id)}"><span class="object-color" style="--object-color:${a.color}">${icon(names[a.type])}</span><span>${esc(a.name)}</span></button><button class="visibility" data-visibility="${esc(a.id)}" title="Visibilitas ${esc(a.name)}" aria-label="Visibilitas ${esc(a.name)}">${icon(a.visible ? 'eye' : 'eye-off')}</button></div>`).join(''); iconsRefresh();
+}
+function renderTimeline() {
+  const total = totalDuration(project); let offset = 0;
+  $('#shot-track').innerHTML = project.shots.map((s, i) => { const html = `<button data-shot="${esc(s.id)}" class="shot-segment ${s.id === activeId ? 'active' : ''}" style="flex:${s.duration};--shot-color:${['#a6c197','#8ba3a7','#baaa83','#9c9eb6'][i % 4]}" title="${esc(s.name)} · ${s.duration}s"><span class="shot-number">${String(i + 1).padStart(2, '0')}</span><span class="shot-track-name">${esc(s.name)}</span><span class="shot-meta">${s.size} · ${s.duration}s</span></button>`; offset += s.duration; return html; }).join('') + '<div id="playhead"><span></span></div>';
+  $('#timeline-ruler').innerHTML = Array.from({ length: 9 }, (_, i) => `<span>${(total * i / 8).toFixed(1)}s</span>`).join('');
+  $('#scrubber').max = total; $('#scrubber').step = 1 / project.fps; $('#scrubber').value = time;
+  $('#transport-total').textContent = `/ ${timecode(total)}`; $('#sequence-info').textContent = `${project.shots.length} SHOTS · ${project.fps} FPS`;
+}
+const field = (label, path, value, { type = 'number', min, max, step = 0.1, unit = '', scope = 'shot' } = {}) => `<label class="field"><span>${label}</span><div class="input-unit"><input data-field="${path}" data-scope="${scope}" type="${type}" value="${esc(value)}" ${min !== undefined ? `min="${min}"` : ''} ${max !== undefined ? `max="${max}"` : ''} ${type === 'number' ? `step="${step}"` : ''}/>${unit ? `<b>${unit}</b>` : ''}</div></label>`;
+const textArea = (label, path, value, scope = 'shot', rows = 3) => `<label class="field"><span>${label}</span><textarea rows="${rows}" data-field="${path}" data-scope="${scope}">${esc(value)}</textarea></label>`;
+const select = (label, path, value, options, scope = 'shot') => `<label class="field"><span>${label}</span><select data-field="${path}" data-scope="${scope}">${options.map(o => { const [v, l] = Array.isArray(o) ? o : [o, o]; return `<option value="${v}" ${v === value ? 'selected' : ''}>${l}</option>`; }).join('')}</select></label>`;
+const vectorFields = (label, path, value, scope = 'shot') => `<div class="vector-field"><span>${label}</span><div>${value.map((v, i) => `<label><b>${['X', 'Y', 'Z'][i]}</b><input aria-label="${label} ${['X','Y','Z'][i]}" data-field="${path}.${i}" data-scope="${scope}" type="number" step="0.1" value="${Number(v.toFixed(3))}"/></label>`).join('')}</div></div>`;
+function renderInspector() {
+  const s = current(), idx = project.shots.indexOf(s);
+  $('#shot-identity').innerHTML = `<div class="shot-kicker"><span>SHOT ${String(idx + 1).padStart(2, '0')}</span><span class="shot-duration">${s.duration}s</span></div><input class="shot-name" aria-label="Nama shot" data-field="name" data-scope="shot" value="${esc(s.name)}"/><div class="shot-actions">${button('copy','duplicate-shot','Duplikat shot')}${button('arrow-left','move-shot-left','Pindah shot ke kiri')}${button('arrow-right','move-shot-right','Pindah shot ke kanan')}${button('trash-2','delete-shot','Hapus shot')}</div>`;
+  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  let html = '';
+  if (tab === 'camera') {
+    html = `<div class="inspector-section"><h3>Optics & framing</h3><div class="field-row">${select('Ukuran shot', 'size', s.size, ['EWS','WS','FS','MS','MCU','CU','ECU','OTS','POV'])}${field('Durasi RAW', 'duration', s.duration, { min: 1 / project.fps, max: 60, step: 1 / project.fps, unit: 's' })}</div><div class="field-row">${field('Lensa awal', 'camera.start.lens', s.camera.start.lens, { min: 12, max: 200, step: 1, unit: 'mm' })}${field('Lensa akhir', 'camera.end.lens', s.camera.end.lens, { min: 12, max: 200, step: 1, unit: 'mm' })}</div><div class="field-row">${field('Aperture', 'camera.aperture', s.camera.aperture, { min: 1, max: 22, unit: 'f' })}${field('Fokus niat', 'camera.focus', s.camera.focus, { min: 0.1, max: 1000, unit: 'm' })}</div><p class="field-note">Sensor width 36mm. Aperture dan fokus dicatat untuk prompt; blur DoF belum disimulasikan.</p></div><div class="inspector-section"><h3>Camera choreography</h3><div class="field-row">${select('Gerakan', 'camera.movement', s.camera.movement, [['static','Static'],['dolly','Dolly'],['truck','Truck'],['crane','Crane'],['orbit','Orbit'],['handheld','Handheld']])}${select('Interpolasi', 'camera.easing', s.camera.easing, [['smooth','Ease in/out'],['linear','Linear']])}</div><div class="pose-head"><span class="pose-dot"></span> START FRAME <button data-action="capture-start" class="text-button">Ambil view</button></div>${vectorFields('Posisi kamera awal', 'camera.start.position', s.camera.start.position)}${vectorFields('Look-at awal', 'camera.start.target', s.camera.start.target)}<div class="pose-head end"><span class="pose-dot"></span> END FRAME <button data-action="capture-end" class="text-button">Ambil view</button></div>${vectorFields('Posisi kamera akhir', 'camera.end.position', s.camera.end.position)}${vectorFields('Look-at akhir', 'camera.end.target', s.camera.end.target)}<p class="field-note">Atur view diorama, lalu “Ambil view” untuk menjadikannya posisi kamera.</p></div><div class="inspector-section"><h3>Tujuan & aksi</h3>${textArea('Fungsi shot', 'purpose', s.purpose, 'shot', 2)}${textArea('Aksi / visual', 'action', s.action)}</div>`;
+  } else if (tab === 'blocking') {
+    const a = actor();
+    if (a) {
+      const b = s.blocking.find(b => b.actorId === a.id), pose = actorPose(project, idx, 0, a).position;
+      html = `<div class="inspector-section"><h3>Objek terpilih <span class="color-dot" style="background:${a.color}"></span></h3>${field('Nama objek', 'name', a.name, { type: 'text', scope: 'actor' })}<div class="field-row">${field('Warna', 'color', a.color, { type: 'color', scope: 'actor' })}${field('Skala', 'scale', a.scale, { min: 0.1, max: 20, scope: 'actor' })}</div>${field('Arah hadap', 'rotation', a.rotation, { min: -360, max: 360, unit: '°', scope: 'actor' })}${vectorFields('Posisi dasar', 'position', a.position, 'actor')}<p class="field-note">Ukuran pill ±1,75m pada skala 1. Posisi dalam meter; Y adalah tinggi.</p><button class="button subtle full" data-action="duplicate-actor">${icon('copy')} Duplikat objek</button><button class="text-button danger" data-action="delete-actor">${icon('trash-2')} Hapus objek</button></div><div class="inspector-section"><h3>Blocking · shot aktif</h3><p class="field-note">Posisi akhir diteruskan ke shot berikutnya. Track shot aktif menimpa posisi dasar.</p>${select('Aksi', 'action', b?.action || 'hold', [['hold','Diam'],['walk','Jalan'],['run','Lari'],['jump','Lompat'],['float','Melayang']], 'track')}<div class="field-row">${select('Postur awal', 'poseStart', b?.poseStart || actorPose(project, idx, 0, a).poseStart, ['stand','sit','kneel','crouch','lie'], 'track')}${select('Postur akhir', 'poseEnd', b?.poseEnd || actorPose(project, idx, 0, a).poseEnd, ['stand','sit','kneel','crouch','lie'], 'track')}</div><div class="field-row">${field('Hadap awal', 'rotationStart', b?.rotationStart ?? actorPose(project, idx, 0, a).rotation, { min: -360, max: 360, unit: '°', scope: 'track' })}${field('Hadap akhir', 'rotationEnd', b?.rotationEnd ?? actorPose(project, idx, 0, a).rotation, { min: -360, max: 360, unit: '°', scope: 'track' })}</div><p class="field-note">Cue postur sederhana untuk tinggi tubuh/eyeline; bukan rig realistis.</p>${vectorFields('Awal blocking', 'start', b?.start || pose, 'track')}${vectorFields('Akhir blocking', 'end', b?.end || pose, 'track')}${b ? '<button class="text-button" data-action="clear-track">Hapus track shot ini</button>' : ''}</div>`;
+    } else html = '<div class="inspector-section"><p class="field-note">Tambahkan atau pilih objek di Scene Explorer.</p></div>';
+  } else if (tab === 'light') {
+    html = `<div class="inspector-section"><h3>Lighting studio</h3>${select('Suasana cahaya', 'light.preset', project.light.preset, [['golden','Golden hour'],['overcast','Overcast'],['night','Night'],['studio','Studio']], 'project')}${field('Intensitas key', 'light.intensity', project.light.intensity, { min: 0, max: 12, scope: 'project' })}<div class="field-row">${field('Azimuth', 'light.azimuth', project.light.azimuth, { min: -180, max: 180, step: 1, scope: 'project', unit: '°' })}${field('Elevasi', 'light.elevation', project.light.elevation, { min: 5, max: 90, step: 1, scope: 'project', unit: '°' })}</div><div class="field-row">${field('Background', 'light.background', project.light.background, { type: 'color', scope: 'project' })}${field('Lantai', 'light.ground', project.light.ground, { type: 'color', scope: 'project' })}</div><p class="field-note">Key light dan ambient berlaku untuk seluruh proyek. Bayangan terlihat langsung di previz.</p></div><div class="inspector-section"><h3>Output format</h3>${select('Rasio frame', 'aspect', project.aspect, ['16:9','9:16','4:3','1:1','21:9','48:9'], 'project')}${select('Frame rate', 'fps', project.fps, [[24,'24 fps'],[25,'25 fps'],[30,'30 fps']], 'project')}${textArea('Geometri lokasi', 'setting', project.setting, 'project', 5)}</div>`;
+  } else {
+    html = `<div class="inspector-section"><div class="prompt-heading">${icon('sparkles')} PROMPT LAB <span>OFFLINE</span></div><p class="field-note">Ubah ide menjadi rancangan shot. Asisten lokal membaca kata kunci gerakan, mm, dan detik; tidak memakai model AI.</p><textarea id="brief-input" rows="4" placeholder="Contoh: dolly mendekat, close-up 50mm selama 6 detik…">${esc(s.action)}</textarea><button class="button primary full" data-action="apply-brief">${icon('wand-sparkles')} Terapkan ke shot</button></div><div class="inspector-section"><h3>Prompt dari stage</h3><p class="field-note">Selalu dibangun dari geometri, lensa, aksi dan timing proyek saat ini.</p><pre class="prompt-output" id="prompt-output">${esc(buildPrompt(project, s))}</pre><div class="field-row"><button class="button subtle" data-action="copy-prompt">${icon('copy')} Salin</button><button class="button subtle" data-action="download-prompts">${icon('download')} .txt</button></div>${textArea('Suara / dialog', 'sound', s.sound)}${textArea('Catatan produksi', 'notes', s.notes)}</div>`;
+  }
+  $('#inspector-content').innerHTML = html; iconsRefresh();
+}
+function updateReadouts() {
+  const l = locateShot(project, time), p = evaluateShot(l.shot, l.localTime);
+  $('#transport-time').textContent = timecode(time); $('#camera-timecode').textContent = timecode(l.localTime); $('#monitor-shot').textContent = `SHOT ${String(l.index + 1).padStart(2, '0')}`; $('#camera-size').textContent = l.shot.size; $('#camera-optics').textContent = `${p.lens.toFixed(0)}mm / f${l.shot.camera.aperture} / ${l.shot.camera.focus}m`;
+  $('#tele-position').textContent = p.position.map(n => n.toFixed(2)).join(' / '); $('#tele-lens').textContent = `${p.lens.toFixed(1)} mm`; $('#tele-distance').textContent = `${p.focusDistance.toFixed(2)} m`; $('#tele-shot').textContent = `${String(l.index + 1).padStart(2, '0')} / ${project.shots.length}`;
+  $('#scrubber').value = time; if ($('#playhead')) $('#playhead').style.left = `${time / totalDuration(project) * 100}%`;
+  $('#status-detail').textContent = `${l.shot.edit.sequence_id} / ${l.shot.edit.job_id} / ${l.shot.edit.shot_id} · local ${l.localTime.toFixed(2)}s → SQ ${mapLocalToSequence(l.shot, l.localTime).toFixed(2)}s`;
+}
+function seek(t) { time = clamp(t, 0, totalDuration(project)); const l = locateShot(project, time); if (activeId !== l.shot.id) { activeId = l.shot.id; renderTimeline(); renderInspector(); } syncReference(); updateReadouts(); }
+function syncReference() { const v = $('#reference-video'); if (referenceURL && Number.isFinite(v.duration)) { const t = Math.min(time, Math.max(0, v.duration - 0.02)); if (Math.abs(v.currentTime - t) > 0.12) v.currentTime = t; } }
+function setPlaying(value) {
+  playing = value; const b = $('[data-action="play"]'); b.innerHTML = icon(value ? 'pause' : 'play'); b.classList.toggle('is-playing', value); iconsRefresh();
+  const v = $('#reference-video'); if (referenceURL) { if (value) { syncReference(); v.muted = true; v.play().catch(() => {}); } else v.pause(); }
+}
+function selectShot(id) { setPlaying(false); activeId = id; seek(shotOffset(project, id)); renderTimeline(); renderInspector(); }
+function download(data, filename, type) { const blob = data instanceof Blob ? data : new Blob([data], { type }); const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(url), 30000); }
+const slug = () => project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 70) || 'warkai-previz';
+function openModal(title, content, cls = '') { $('#modal-title').textContent = title; $('#modal-content').innerHTML = content; $('#modal').className = cls; $('#modal').showModal(); iconsRefresh(); }
+function closeModal() { $('#modal').close(); }
+function exportMenu() { openModal('Export your vision.', `<p class="modal-intro">Dari stage ke produksi. Pilih hasil yang ingin dibawa ke workflow video AI.</p><div class="export-grid">${[['video','film','Video previz','MP4 frame-akurat via FFmpeg. Semua RAW sesuai timeline; fallback capture jika FFmpeg tidak tersedia.'],['frame','image','Camera frame','Frame kamera bersih dalam PNG.'],['contact','gallery-horizontal-end','Contact sheet','Start dan end frame setiap shot dalam satu PNG.'],['json','braces','Project JSON','Proyek lengkap, termasuk model GLB yang diimpor.'],['yaml','file-code-2','Blueprint YAML','Score yang dapat diedit dan diimpor kembali.'],['manifest','list-video','Shot manifest','Pemetaan RAW / job / EDIT sequence dalam JSON dan CSV.'],['prompts','sparkles','Generation prompts','Prompt mandiri untuk setiap shot, berdasarkan stage saat ini.']].map(([id,ico,title,desc]) => `<button data-export="${id}" class="export-option">${icon(ico)}<strong>${title}</strong><span>${desc}</span>${icon('arrow-up-right')}</button>`).join('')}</div><p class="field-note">Render blockout untuk acuan ruang dan timing. Pemodelan karakter realistis, simulasi DoF, audio mixing, dan generasi video AI belum termasuk.</p>`,'wide-modal'); }
+function blueprintModal() { openModal('Production blueprint', `<p class="modal-intro">Satu score untuk stage, kamera, dan timing. Edit YAML lalu terapkan; input divalidasi sebelum mengganti proyek.</p><div class="blueprint-tools"><button class="button subtle" data-action="copy-score">${icon('copy')} Salin YAML</button><button class="button primary" data-action="apply-score">${icon('check')} Terapkan score</button></div><textarea spellcheck="false" id="score-editor" aria-label="YAML blueprint">${esc(stringifyYAML(project))}</textarea><h3>Timing shot aktif</h3><div class="field-row three">${field('Sequence ID', 'edit.sequence_id', current().edit.sequence_id, { type: 'text' })}${field('Job ID', 'edit.job_id', current().edit.job_id, { type: 'text' })}${field('Shot ID', 'edit.shot_id', current().edit.shot_id, { type: 'text' })}</div><div class="field-row three">${field('RAW trim in', 'edit.raw_in', current().edit.raw_in, { min: 0, unit: 's' })}${field('RAW trim out', 'edit.raw_out', current().edit.raw_out, { min: 0, unit: 's' })}${field('EDIT SQ in', 'edit.sequence_in', current().edit.sequence_in, { min: 0, unit: 's' })}</div><p class="field-note">RAW adalah durasi sumber shot. Rentang RAW trim dipetakan ke EDIT SQ in. Video mengekspor semua RAW berurutan; manifest menjelaskan trim untuk penyuntingan. Perubahan form timing tersimpan langsung; buka Blueprint lagi untuk memperbarui teks YAML.</p>`,'wide-modal'); }
+function projectModal() { openModal('Pengaturan proyek', `${field('Nama proyek', 'name', project.name, { type: 'text', scope: 'project' })}${textArea('Konsep', 'description', project.description, 'project')}${textArea('Geometri lokasi', 'setting', project.setting, 'project', 4)}<div class="field-row">${select('Rasio output', 'aspect', project.aspect, ['16:9','9:16','4:3','1:1','21:9','48:9'], 'project')}${select('Frame rate', 'fps', project.fps, [[24,'24 fps'],[25,'25 fps'],[30,'30 fps']], 'project')}</div><p class="field-note">Durasi harus kelipatan 1 frame. Mengubah fps mempertahankan jumlah detik jika valid; shot pecahan frame perlu disesuaikan dahulu.</p><button class="button primary full" data-action="close-modal">Selesai</button>`); }
+function getPath(obj, path) { return path.split('.').reduce((o, k) => o[k], obj); }
+function setPath(obj, path, val) { const keys = path.split('.'); const last = keys.pop(); keys.reduce((o,k) => o[k], obj)[last] = val; }
+
+function commitField(e) {
+  const el = e.target; if (!el.dataset.field) return; const { field: path, scope } = el.dataset;
+  const value = el.type === 'number' || path === 'fps' ? Number(el.value) : el.value;
+  mutate(p => {
+    let target = scope === 'project' ? p : scope === 'actor' ? actor() : current();
+    if (scope === 'track') { const s = current(), a = actor(); let track = s.blocking.find(b => b.actorId === a.id); if (!track) { const pos = actorPose(p, p.shots.indexOf(s), 0, a).position; track = { actorId: a.id, start: [...pos], end: [...pos], action: 'hold' }; s.blocking.push(track); } target = track; }
+    if (path === 'duration' && scope === 'shot') { const old = target.duration; if (target.edit.raw_out === old) target.edit.raw_out = value; }
+    setPath(target, path, value);
+  }, scope === 'actor');
+}
+document.addEventListener('change', commitField);
+document.addEventListener('focusout', (e) => {
+  const el = e.target; if (!el.dataset.field) return;
+  let target = el.dataset.scope === 'project' ? project : el.dataset.scope === 'actor' ? actor() : current();
+  if (el.dataset.scope === 'track') target = current().blocking.find(b => b.actorId === actorId);
+  if (!target) { commitField(e); return; }
+  const value = el.type === 'number' || el.dataset.field === 'fps' ? Number(el.value) : el.value;
+  if (getPath(target, el.dataset.field) !== value) commitField(e);
+});
+document.addEventListener('click', async (e) => {
+  const a = e.target.closest('[data-action], [data-tab], [data-shot], [data-add], [data-select-actor], [data-visibility], [data-export], [data-workspace]'); if (!a || recording && a.dataset.action !== 'cancel-export') return;
+  e.preventDefault();
+  if (a.dataset.tab) { tab = a.dataset.tab; renderInspector(); return; }
+  if (a.dataset.shot) { selectShot(a.dataset.shot); return; }
+  if (a.dataset.selectActor) { actorId = a.dataset.selectActor; tab = 'blocking'; engine?.select(actorId); renderObjects(); renderInspector(); return; }
+  if (a.dataset.visibility) { mutate(p => { const item = p.actors.find(o => o.id === a.dataset.visibility); item.visible = !item.visible; }); return; }
+  if (a.dataset.add) { addObject(a.dataset.add); return; }
+  if (a.dataset.export) { await handleExport(a.dataset.export); return; }
+  if (a.dataset.workspace) {
+    if (a.dataset.workspace === 'score') blueprintModal(); else if (a.dataset.workspace === 'prompt') { tab = 'prompt'; renderInspector(); }
+    return;
+  }
+  const s = current(), idx = project.shots.indexOf(s);
+  switch (a.dataset.action) {
+    case 'play': if (time >= totalDuration(project)) seek(0); setPlaying(!playing); break;
+    case 'start': setPlaying(false); seek(0); break;
+    case 'next': selectShot(project.shots[Math.min(idx + 1, project.shots.length - 1)].id); break;
+    case 'add-shot': { let id; mutate(p => { const n = makeShot(p.shots.length + 1); id = n.id; n.camera.start = clone(s.camera.end); n.camera.end = clone(s.camera.end); n.edit.sequence_in = totalDuration(p); p.shots.push(n); }, false); if (id && project.shots.some(s => s.id === id)) selectShot(id); break; }
+    case 'duplicate-shot': { let id; mutate(p => { const n = clone(s); n.id = uid('shot'); n.name += ' · copy'; n.edit.shot_id += '-copy'; n.edit.sequence_in += n.edit.raw_out - n.edit.raw_in; id = n.id; p.shots.splice(idx + 1, 0, n); }, false); if (id) selectShot(id); break; }
+    case 'delete-shot': if (project.shots.length === 1) { toast('Proyek membutuhkan minimal satu shot.'); break; } mutate(p => p.shots.splice(idx, 1), false); selectShot(project.shots[Math.min(idx, project.shots.length - 1)].id); break;
+    case 'move-shot-left': if (idx > 0) { mutate(p => { [p.shots[idx - 1], p.shots[idx]] = [p.shots[idx], p.shots[idx - 1]]; }, false); selectShot(activeId); } break;
+    case 'move-shot-right': if (idx < project.shots.length - 1) { mutate(p => { [p.shots[idx + 1], p.shots[idx]] = [p.shots[idx], p.shots[idx + 1]]; }, false); selectShot(activeId); } break;
+    case 'undo': if (history.length) { future.push(clone(project)); project = history.pop(); activeId = project.shots.some(s => s.id === activeId) ? activeId : project.shots[0].id; actorId = project.actors.some(a => a.id === actorId) ? actorId : project.actors[0]?.id; time = clamp(time, 0, totalDuration(project)); refresh(); saveSoon(); } break;
+    case 'redo': if (future.length) { history.push(clone(project)); project = future.pop(); activeId = project.shots.some(s => s.id === activeId) ? activeId : project.shots[0].id; actorId = project.actors.some(a => a.id === actorId) ? actorId : project.actors[0]?.id; time = clamp(time, 0, totalDuration(project)); refresh(); saveSoon(); } break;
+    case 'duplicate-actor': if (actor()) mutate(p => { const n = clone(actor()); n.id = uid('object'); n.name += ' copy'; n.position[0] += 1; p.actors.push(n); actorId = n.id; }); break;
+    case 'delete-actor': if (actor()) mutate(p => { p.actors = p.actors.filter(a => a.id !== actorId); p.shots.forEach(s => s.blocking = s.blocking.filter(b => b.actorId !== actorId)); actorId = p.actors[0]?.id; }); break;
+    case 'clear-track': mutate(() => s.blocking = s.blocking.filter(b => b.actorId !== actorId), false); break;
+    case 'capture-start': case 'capture-end': { if (!engine) break; const end = a.dataset.action === 'capture-end', pose = engine.getStagePose(); mutate(() => { s.camera[end ? 'end' : 'start'].position = pose.position; s.camera[end ? 'end' : 'start'].target = pose.target; }, false); seek(shotOffset(project, s.id) + (end ? s.duration - 1 / project.fps : 0)); toast(`${end ? 'End' : 'Start'} camera diambil dari view diorama.`); break; }
+    case 'view-iso': case 'view-top': view = a.dataset.action === 'view-top' ? 'top' : 'iso'; engine?.setView(view); $('[data-action="view-iso"]').classList.toggle('active', view === 'iso'); $('[data-action="view-top"]').classList.toggle('active', view === 'top'); break;
+    case 'align-stage': engine?.setStageToCamera(); break;
+    case 'translate': case 'rotate': engine?.select(actorId, a.dataset.action); $('[data-action="translate"]').classList.toggle('selected', a.dataset.action === 'translate'); $('[data-action="rotate"]').classList.toggle('selected', a.dataset.action === 'rotate'); break;
+    case 'guides': guides = !guides; a.classList.toggle('selected', guides); break;
+    case 'grid': grid = !grid; a.classList.toggle('selected', grid); break;
+    case 'thirds': third = !third; $('#thirds').hidden = !third; break;
+    case 'open': $('#project-file').click(); break;
+    case 'save': download(JSON.stringify(project, null, 2), `${slug()}.json`, 'application/json'); break;
+    case 'reference': $('#reference-file').click(); break;
+    case 'clear-reference': if (referenceURL) URL.revokeObjectURL(referenceURL); referenceURL = undefined; $('#reference-video').pause(); $('#reference-video').removeAttribute('src'); $('#reference-video').load(); $('#reference-video').hidden = true; $('#reference-empty').hidden = false; $('#reference-name').textContent = 'Hanya di perangkat ini'; break;
+    case 'import-glb': $('#glb-file').click(); break;
+    case 'export': exportMenu(); break;
+    case 'project': projectModal(); break;
+    case 'close-modal': closeModal(); break;
+    case 'copy-score': await copy($('#score-editor').value); break;
+    case 'apply-score': try { replaceProject(validateProject(parseYAML($('#score-editor').value, { maxAliasCount: 50 }))); closeModal(); toast('Blueprint diterapkan.'); } catch (e) { toast(e.message, true); } break;
+    case 'copy-prompt': await copy(buildPrompt(project, s)); break;
+    case 'download-prompts': download(projectPrompt(project), `${slug()}-prompts.txt`, 'text/plain'); break;
+    case 'apply-brief': { const text = $('#brief-input').value; mutate(p => { const result = applyBrief(s, text); if (result.duration !== s.duration) result.edit.raw_out = result.duration; p.shots[idx] = result; }, false); toast('Kata kunci teknis diterapkan. Periksa kamera dan blocking sebelum render.'); break; }
+    case 'cancel-export': exportCancelled = true; break;
+    case 'demos': openModal('Mulai sebuah adegan', `<p class="modal-intro">Proyek saat ini disimpan lewat Undo. Simpan JSON bila ingin menyimpan salinan permanen.</p><div class="demo-options"><button class="export-option" data-action="demo-signal">${icon('sun')}<strong>The quiet signal</strong><span>Pertemuan dua pill, suasana golden hour. 4 shot / 21 detik.</span></button><button class="export-option" data-action="demo-reference">${icon('orbit')}<strong>Pill action study</strong><span>Graybox kapsul, kursi, dan orbital. 4 shot / 15 detik / 4:3.</span></button></div>`); break;
+    case 'demo-signal': case 'demo-reference': replaceProject(createDemo(a.dataset.action === 'demo-reference' ? 'reference' : 'signal')); closeModal(); break;
+    case 'help': openModal('Dari ide ke previz.', `<ol class="help-steps"><li><strong>Bangun ruang.</strong> Tambahkan pill, mannequin, atau properti. Pilih objek dan atur posisi dalam meter di Blocking.</li><li><strong>Susun shot.</strong> Pilih shot di timeline. Atur durasi RAW, lensa awal/akhir, kamera dan look-at. Orbit mengikuti busur; gerakan lain mengikuti dua posisi.</li><li><strong>Atur aksi.</strong> Tentukan posisi awal/akhir objek untuk tiap shot. Posisi akhir diteruskan ke shot berikutnya.</li><li><strong>Uji timing.</strong> Space untuk play. Geser scrubber, periksa monitor, diorama, radar dan kurva lensa/jarak. Gunakan Blueprint untuk metadata EDIT.</li><li><strong>Bawa ke generator.</strong> Export video, frame dan prompt. Unggah media ke generator pilihan secara manual; pill adalah pengganti karakter.</li></ol><div class="help-note">⌘Z Undo · ⌘⇧Z Redo · W Move · E Rotate · Space Play<br>Data tersimpan di IndexedDB browser ini. Export JSON untuk backup atau pindah browser.<br>Import GLB: maksimal 12 MB, satu file mandiri tanpa Draco; animasi pertama diputar bila ada.<br>Video referensi hanya dibaca lokal dan perlu dipilih ulang setelah reload. Export video tanpa audio. Realisme karakter dan kesamaan piksel hasil AI tidak dijamin.</div>`); break;
+  }
+});
+function addObject(type, asset) { mutate(p => { const n = { id: uid('object'), name: type === 'pill' ? `Karakter ${p.actors.filter(a => a.type === 'pill').length + 1}` : `${type[0].toUpperCase() + type.slice(1)} ${p.actors.length + 1}`, type, color: ['#c99355','#719d9c','#a291b5','#b6a884'][p.actors.length % 4], position: [0,0,1], rotation: 0, scale: 1, visible: true }; if (asset) n.asset = asset; p.actors.push(n); actorId = n.id; }); tab = 'blocking'; renderInspector(); }
+function replaceProject(p) { history.push(clone(project)); future = []; project = p; setPlaying(false); activeId = p.shots[0].id; actorId = p.actors[0]?.id; time = 0; refresh(); saveSoon(); }
+async function copy(text) { try { await navigator.clipboard.writeText(text); toast('Disalin ke clipboard.'); } catch { openModal('Salin teks', `<textarea rows="16" class="copy-fallback">${esc(text)}</textarea>`); $('.copy-fallback').select(); } }
+$('#project-file').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; try { if (f.size > 30 * 1024 * 1024) throw new Error('Proyek maksimal 30 MB.'); const text = await f.text(); replaceProject(validateProject(f.name.endsWith('.json') ? JSON.parse(text) : parseYAML(text, { maxAliasCount: 50 }))); toast(`Proyek ${f.name} dibuka.`); } catch (err) { toast(err.message, true); } e.target.value = ''; });
+$('#reference-file').addEventListener('change', e => { const f = e.target.files[0]; if (!f) return; if (referenceURL) URL.revokeObjectURL(referenceURL); referenceURL = URL.createObjectURL(f); $('#reference-video').src = referenceURL; $('#reference-video').hidden = false; $('#reference-empty').hidden = true; $('#reference-name').textContent = f.name; e.target.value = ''; });
+$('#reference-video').addEventListener('error', () => toast('Format video tidak dapat diputar browser ini. Gunakan MP4 H.264 atau WebM.', true));
+$('#glb-file').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; try { if (f.size > 12 * 1024 * 1024) throw new Error('GLB maksimal 12 MB.'); const buffer = await f.arrayBuffer(); if (new DataView(buffer).getUint32(0, true) !== 0x46546c67) throw new Error('File bukan GLB yang valid.'); const asset = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = reject; r.readAsDataURL(new Blob([buffer], { type: 'model/gltf-binary' })); }); addObject('glb', asset); toast('Model diimpor; disimpan bersama proyek JSON.'); } catch (err) { toast(err.message, true); } e.target.value = ''; });
+$('#scrubber').addEventListener('input', e => { setPlaying(false); seek(Number(e.target.value)); });
+$('#modal').addEventListener('click', e => { if (e.target === $('#modal')) { const r = $('#modal').getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) closeModal(); } });
+document.addEventListener('keydown', e => { if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName) || $('#modal').open || recording) return; if (e.code === 'Space') { e.preventDefault(); $('[data-action="play"]').click(); } if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); $(`[data-action="${e.shiftKey ? 'redo' : 'undo'}"]`).click(); } if (!e.metaKey && !e.ctrlKey && e.key.toLowerCase() === 'w') $('[data-action="translate"]').click(); if (!e.metaKey && !e.ctrlKey && e.key.toLowerCase() === 'e') $('[data-action="rotate"]').click(); });
+
+async function handleExport(type) {
+  try {
+    if (type === 'json') download(JSON.stringify(project, null, 2), `${slug()}.json`, 'application/json');
+    if (type === 'yaml') download(stringifyYAML(project), `${slug()}-score.yaml`, 'text/yaml');
+    if (type === 'prompts') download(projectPrompt(project), `${slug()}-prompts.txt`, 'text/plain');
+    if (type === 'manifest') { const rows = shotManifest(project); download(JSON.stringify({ schema: 'warkai-shot-manifest/1', project: project.name, video_mode: 'RAW shots, ordered project timeline', shots: rows }, null, 2), `${slug()}-manifest.json`, 'application/json'); const keys = Object.keys(rows[0]); const cell = v => `"${String(v).replaceAll('"','""')}"`; download([keys.join(','), ...rows.map(r => keys.map(k => cell(r[k])).join(','))].join('\n'), `${slug()}-shotlist.csv`, 'text/csv'); }
+    if (type === 'frame') { if (!engine) throw new Error('WebGL diperlukan.'); await engine.waitForAssets(); engine.update(time, { guides, grid }); const c = engine.captureFrame(1600); await saveCanvas(c, `${slug()}-${current().edit.shot_id}-${timecode(time).replaceAll(':','-')}.png`); }
+    if (type === 'contact') await exportContactSheet();
+    if (type === 'video') { closeModal(); await exportVideo(); }
+  } catch (e) { toast(`Export gagal: ${e.message}`, true); }
+}
+async function saveCanvas(canvas, filename) { const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png')); if (!blob) throw new Error('PNG tidak dapat dibuat.'); download(blob, filename); }
+async function exportContactSheet() {
+  if (!engine) throw new Error('WebGL diperlukan.'); await engine.waitForAssets(); setPlaying(false); const old = time, ratio = aspectValue(project.aspect), w = 640, h = Math.round(w / ratio), pad = 24, label = 42;
+  const sheet = document.createElement('canvas'); sheet.width = w * 2 + pad * 3; sheet.height = 90 + project.shots.length * (h + label + pad) + pad;
+  if (sheet.height > 30000) throw new Error('Contact sheet terlalu besar; kurangi shot atau gunakan rasio landscape.');
+  const ctx = sheet.getContext('2d'); ctx.fillStyle = '#151b1c'; ctx.fillRect(0,0,sheet.width,sheet.height); ctx.fillStyle = '#c3e5b4'; ctx.font = '24px system-ui'; ctx.fillText(`warkai. / ${project.name}`, pad, 42); ctx.fillStyle = '#879491'; ctx.font = '12px monospace'; ctx.fillText(`${project.aspect} · ${project.fps} FPS · START / END FRAMES · BLOCKOUT`, pad, 65);
+  for (let i = 0; i < project.shots.length; i++) { const s = project.shots[i]; for (let j = 0; j < 2; j++) { engine.update(shotOffset(project, s.id) + (j ? s.duration - 1 / project.fps : 0), { guides: false, grid }); const frame = engine.captureFrame(w); const x = pad + j * (w + pad), y = 90 + i * (h + label + pad); ctx.drawImage(frame,x,y,w,h); ctx.fillStyle = '#e2e7df'; ctx.font = '13px system-ui'; ctx.fillText(`${String(i + 1).padStart(2,'0')} · ${s.name} / ${j ? 'END' : 'START'} · ${s.camera[j ? 'end' : 'start'].lens}mm`, x, y+h+25); } }
+  engine.update(old, { guides, grid }); await saveCanvas(sheet, `${slug()}-contact-sheet.png`); toast('Contact sheet dibuat.');
+}
+function exportDimensions(max = 1280) { const [w, h] = project.aspect.split(':').map(Number); const k = Math.floor(max / Math.max(w,h) / 2) * 2; return { width: w * k, height: h * k }; }
+async function renderRequest(url, options) {
+  const r = await fetch(url, options), payload = await r.json();
+  if (!r.ok) throw new Error(payload.error || `HTTP ${r.status}`); return payload;
+}
+async function exportVideo() {
+  if (!engine) throw new Error('WebGL diperlukan.');
+  await engine.waitForAssets();
+  const status = await renderRequest('/api/render/status');
+  if (status.busy) throw new Error(`Render lain sedang berjalan (${status.progress.received}/${status.progress.frames} frame). Tunggu selesai atau batalkan di tab pemilik render.`);
+  if (!status.available) { toast('FFmpeg belum tersedia; memakai capture browser yang tidak menjamin timing per frame.'); return exportBrowserVideo(); }
+  const size = exportDimensions(), fps = project.fps, frames = Math.round(totalDuration(project) * fps);
+  setPlaying(false); recording = true; exportCancelled = false; $('#export-overlay').hidden = false;
+  const oldTime = time; let job;
+  try {
+    job = await renderRequest('/api/render', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...size, fps, frames }) });
+    for (let i = 0; i < frames && !exportCancelled; i++) {
+      const t = i / fps; engine.update(t, { guides: false, grid, render: false }); const surface = engine.captureFrame(size.width);
+      const blob = await new Promise(resolve => surface.toBlob(resolve, 'image/png')); if (!blob) throw new Error('Frame PNG gagal dibuat.');
+      await renderRequest(`/api/render/${job.id}/frame?index=${i}`, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: blob });
+      $('#render-progress').value = (i + 1) / frames;
+      $('#render-status').textContent = `${i + 1} / ${frames} frame · ${size.width}×${size.height} · ${fps}fps · MP4`;
+    }
+    if (exportCancelled) { await renderRequest(`/api/render/${job.id}`, { method: 'DELETE' }); toast('Render dibatalkan.'); return; }
+    $('#render-status').textContent = 'Menyelesaikan encode MP4…';
+    const result = await renderRequest(`/api/render/${job.id}/finish`, { method: 'POST' });
+    const response = await fetch(result.url); if (!response.ok) throw new Error('Video hasil render tidak dapat diunduh.');
+    download(await response.blob(), `${slug()}-previz.mp4`);
+    toast(`MP4 selesai: ${result.frames} frame / ${result.fps}fps / ${result.duration.toFixed(2)}s.`);
+  } catch (e) { if (job) await fetch(`/api/render/${job.id}`, { method: 'DELETE' }).catch(() => {}); throw e; }
+  finally { recording = false; time = oldTime; $('#export-overlay').hidden = true; engine.update(time, { guides, grid }); seek(oldTime); }
+}
+async function exportBrowserVideo() {
+  if (!engine || !window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) throw new Error('Browser ini belum mendukung render video. Coba Chrome terbaru.');
+  const formats = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4']; const mime = formats.find(t => MediaRecorder.isTypeSupported(t)); if (!mime) throw new Error('Codec video tidak tersedia.');
+  setPlaying(false); recording = true; exportCancelled = false; $('#export-overlay').hidden = false;
+  const oldTime = time, ratio = aspectValue(project.aspect), canvas = document.createElement('canvas');
+  canvas.width = Math.round((ratio >= 1 ? 1280 : 1280 * ratio) / 2) * 2; canvas.height = Math.round((ratio >= 1 ? 1280 / ratio : 1280) / 2) * 2;
+  const ctx = canvas.getContext('2d'), stream = canvas.captureStream(project.fps), chunks = [];
+  const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 });
+  let recorderError;
+  const done = new Promise((resolve, reject) => { recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); }; recorder.onstop = resolve; recorder.onerror = e => { recorderError = e.error || new Error('Recorder error'); reject(recorderError); }; });
+  try {
+    // Real-time capture. Frame stepping uses the project's clock, not UI frame rate.
+    const frames = Math.round(totalDuration(project) * project.fps); recorder.start(1000); const started = performance.now();
+    for (let i = 0; i < frames && !exportCancelled && !recorderError; i++) {
+      const t = i / project.fps; time = t; engine.update(t, { guides: false, grid }); const image = engine.captureFrame(canvas.width); ctx.drawImage(image, 0,0,canvas.width,canvas.height); stream.getVideoTracks()[0].requestFrame?.();
+      $('#render-progress').value = i / frames; $('#render-status').textContent = `${Math.round(i / frames * 100)}% · ${t.toFixed(2)} / ${totalDuration(project).toFixed(2)}s · ${canvas.width}×${canvas.height} · ${project.fps}fps`;
+      await new Promise(r => setTimeout(r, Math.max(0, started + (i + 1) * 1000 / project.fps - performance.now())));
+    }
+    if (recorder.state !== 'inactive') recorder.stop(); await done;
+    if (recorderError) throw recorderError;
+    if (!exportCancelled) { const ext = mime.includes('mp4') ? 'mp4' : 'webm'; download(new Blob(chunks, { type: mime }), `${slug()}-previz.${ext}`); toast(`Video previz ${ext.toUpperCase()} selesai. RAW semua shot, tanpa audio.`); }
+    else toast('Render dibatalkan.');
+  } finally { if (recorder.state !== 'inactive') recorder.stop(); stream.getTracks().forEach(t => t.stop()); recording = false; time = oldTime; $('#export-overlay').hidden = true; engine.resize(); seek(oldTime); }
+}
+
+refresh(); saveSoon();
+let last = performance.now(), readoutClock = 0;
+function tick(now) {
+  const dt = Math.min((now - last) / 1000, 0.1); last = now;
+  if (!recording) {
+    if (playing) { time += dt; if (time >= totalDuration(project)) { time = totalDuration(project); setPlaying(false); } const l = locateShot(project, time); if (l.shot.id !== activeId) { activeId = l.shot.id; renderTimeline(); renderInspector(); } }
+    engine?.update(time, { guides, grid });
+    if (now - readoutClock > 70) { updateReadouts(); engine?.drawRadar($('#radar'), time); engine?.drawCurves($('#curves'), time); readoutClock = now; }
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
