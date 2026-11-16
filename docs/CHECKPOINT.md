@@ -1,3 +1,15 @@
+# CP002 — Pill, camera keys dan Director lokal
+
+Checkpoint 16 November 2026. Versi aplikasi 0.2.0; branch `feat/shot-states-lighting`. CP001 main tetap sebagai checkpoint sebelumnya. Source CP002 mencakup pengganti mannequin, identitas karakter, jalur kamera dengan key IN/OUT dan orbit penuh, Director per shot, insert timeline, planner cerita/dokumen, hapus keyboard/klik kanan, state prop/plate/crop dan cahaya per shot.
+
+Jalankan `npm ci`, `npm run dev` (4317 default), atau `WARKAI_PORT=4318 npm run dev` untuk runtime terpisah. Schema `/1` diterima; fitur baru mengekspor `/2`. Gunakan `npm test`, `npm run test:render`, `npm run build`, `npm audit`. Lihat `docs/QC.md` untuk hasil nyata dan batas.
+
+Aplikasi tetap lokal tanpa login/billing/cloud/generator API. Planner dan Director berbasis grammar/kata kunci. Kamera/aktor mempunyai dua endpoint; waypoint tengah, rig kontak otomatis dan audio belum tersedia. MP4 mengekspor RAW; EDIT conform melalui manifest.
+
+Bejo: aplikasi dan QC teknis. Inara: canon, aset dan QC visual konten film, di workspace terpisah. Film/media/credentials tidak masuk Git. Render sukses tidak menandakan konten PASS. CP001 berikut disimpan sebagai catatan historis.
+
+---
+
 # CP001 — local previz studio
 
 Scope: aplikasi lokal Three.js untuk pill/graybox, kamera, blocking, multishot, blueprint dan handoff prompt video AI. Implementasi bersifat umum; tidak dikunci ke satu film.

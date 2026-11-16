@@ -1,19 +1,21 @@
 {
   "name": "warkai-previz-visual",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Local 3D previz studio: pill blocking, camera choreography and video-generation blueprints.",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 4317 --strictPort",
+    "dev": "vite --host 127.0.0.1 --strictPort",
     "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 4317 --strictPort",
-    "test": "node --test src/model.test.js",
+    "preview": "vite preview --host 127.0.0.1 --strictPort",
+    "test": "node --test src/model.test.js src/director.test.js",
     "validate": "node scripts/validate-project.mjs",
     "test:render": "node --test scripts/render-api.test.mjs"
   },
   "dependencies": {
     "lucide": "0.468.0",
+    "mammoth": "1.13.0",
+    "pdfjs-dist": "6.5.438",
     "three": "0.187.0",
     "yaml": "2.9.1"
   },
