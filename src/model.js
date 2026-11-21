@@ -1,5 +1,9 @@
+import {validateAragiPlan} from './aragi-plan.js';
+import {describeLightRig,validateLightRig} from './light-rig.js';
+
 export const SCHEMA = 'warkai-previz/1';
 export const STATE_SCHEMA = 'warkai-previz/2';
+export const MOTION_SCHEMA = 'warkai-previz/3';
 export const clone = (v) => structuredClone(v);
 export const uid = (prefix = 'item') => `${prefix}-${globalThis.crypto.randomUUID().slice(0, 8)}`;
 export const isCharacter = a => ['pill','pill-person'].includes(a.type) || a.type==='glb'&&a.role==='character';
@@ -80,47 +84,103 @@ export function orbitSweep(camera) {
   let b=Math.atan2(camera.end.position[0]-camera.end.target[0],camera.end.position[2]-camera.end.target[2]);
   while(b-a>Math.PI)b-=2*Math.PI;while(b-a< -Math.PI)b+=2*Math.PI;return(b-a)*180/Math.PI;
 }
-export function setOrbitSweep(camera,degrees){
-  camera.orbitDegrees=degrees;camera.movement='orbit';const start=camera.start,end=camera.end;
+export function alignOrbitEnd(camera){
+  const degrees=camera.orbitDegrees, start=camera.start,end=camera.end;
   const a=Math.atan2(start.position[0]-start.target[0],start.position[2]-start.target[2])+degrees*Math.PI/180;
   const r=Math.hypot(end.position[0]-end.target[0],end.position[2]-end.target[2]);
   end.position[0]=end.target[0]+Math.sin(a)*r;end.position[2]=end.target[2]+Math.cos(a)*r;
+  return a;
 }
-export function evaluateShot(shot, localTime) {
+export function setOrbitSweep(camera,degrees){
+  camera.orbitDegrees=degrees;camera.movement='orbit';
+  const a=alignOrbitEnd(camera);
+  for (const key of camera.keys || []) {
+    const theta = a - (1 - key.at) * degrees * Math.PI / 180;
+    const radius = Math.hypot(key.position[0]-key.target[0], key.position[2]-key.target[2]);
+    key.position[0] = key.target[0] + radius * Math.sin(theta);
+    key.position[2] = key.target[2] + radius * Math.cos(theta);
+  }
+}
+function segment(keys, start, end, progress) {
+  let left = start;
+  for (const right of keys || []) {
+    if (progress <= right.at) return [left, right];
+    left = right;
+  }
+  return [left, end];
+}
+export function evaluateShot(shot, localTime, {handheld = true} = {}) {
   const raw = clamp(localTime / shot.duration, 0, 1);
-  const t = shot.camera.easing === 'linear' ? raw : raw * raw * (3 - 2 * raw);
-  const { start, end, movement } = shot.camera;
+  const camera = shot.camera, movement = camera.movement;
+  const [start,end] = segment(camera.keys, {...camera.start, at:0, roll:camera.rollStart || 0, focus:camera.start.focus ?? camera.focus}, {...camera.end, at:1, roll:camera.rollEnd || 0, focus:camera.end.focus ?? camera.focus}, raw);
+  const u = (raw-start.at)/(end.at-start.at);
+  const t = camera.easing === 'linear' ? u : u*u*(3-2*u);
   let position = mix3(start.position, end.position, t);
   const target = mix3(start.target, end.target, t);
   if (movement === 'static') position = [...start.position];
   if (movement === 'orbit') {
     const a = Math.atan2(start.position[0] - start.target[0], start.position[2] - start.target[2]);
-    const b = a + orbitSweep(shot.camera)*Math.PI/180;
+    let sweep = orbitSweep({start,end});
+    if (camera.orbitDegrees !== undefined) sweep=orbitKeyAngle(camera,end)-orbitKeyAngle(camera,start);
+    const b = a + sweep*Math.PI/180;
     const r0 = Math.hypot(start.position[0] - start.target[0], start.position[2] - start.target[2]);
     const r1 = Math.hypot(end.position[0] - end.target[0], end.position[2] - end.target[2]);
     const r = mix(r0, r1, t), theta = mix(a, b, t);
     position = [target[0] + Math.sin(theta) * r, position[1], target[2] + Math.cos(theta) * r];
   }
-  return { position, target, roll:mix(shot.camera.rollStart||0,shot.camera.rollEnd||0,t), lens: mix(start.lens, end.lens, t), focusDistance: Math.hypot(...position.map((v, i) => v - target[i])), progress: raw };
+  if (handheld && movement === 'handheld') {
+    position[0] += Math.sin(localTime * 4.7) * 0.025;
+    position[1] += Math.sin(localTime * 6.3) * 0.018;
+  }
+  return {position, target, roll:mix(start.roll ?? 0,end.roll ?? 0,t), lens:mix(start.lens,end.lens,t), focus:mix(start.focus ?? camera.focus,end.focus ?? camera.focus,t), focusDistance:Math.hypot(...position.map((v,i)=>v-target[i])), progress:raw};
+}
+function orbitKeyAngle(camera,key) {
+  if (key.at===0) return 0;
+  if (key.at===1) return camera.orbitDegrees;
+  const principal=orbitSweep({start:camera.start,end:key});
+  return principal+360*Math.round((camera.orbitDegrees*key.at-principal)/360);
+}
+export function performanceFor(project, shot) {
+  return project.takes?.find(take => take.id === shot.takeId) || shot;
+}
+export function cameraPathTimes(shot) {
+  const steps = Math.max(64, shot.camera.movement === 'handheld' ? Math.ceil(shot.duration*12) : 0);
+  return [...new Set([...Array.from({length:steps+1},(_,i)=>i/steps), ...(shot.camera.keys || []).map(k=>k.at)])].sort((a,b)=>a-b).map(at=>at*shot.duration);
 }
 // Blocking carries the end pose of earlier shots into later shots.
 export function actorPose(project, shotIndex, localTime, actor) {
   let position = [...actor.position], action = 'hold', rotation = actor.rotation, pitch = actor.pitch || 0, roll = actor.roll || 0;
-  let poseStart = actor.pose || 'stand', poseEnd = poseStart, poseProgress = 1;
+  let poseStart = actor.pose || 'stand', poseEnd = poseStart, poseProgress = 1, phase = 0, actionProgress = 0;
   for (let i = 0; i <= shotIndex; i++) {
     const shot = project.shots[i];
-    const track = shot.blocking.find((b) => b.actorId === actor.id);
+    if (i < shotIndex && shot.takeId && shot.takeId === project.shots[i+1].takeId) continue;
+    const take = performanceFor(project, shot);
+    const track = take.blocking.find((b) => b.actorId === actor.id);
     if (!track) continue;
-    const t = i === shotIndex ? clamp(localTime / shot.duration, 0, 1) : 1;
-    position = mix3(track.start, track.end, t);
-    rotation = mix(track.rotationStart ?? rotation, track.rotationEnd ?? track.rotationStart ?? rotation, t);
-    pitch = mix(track.pitchStart ?? pitch, track.pitchEnd ?? track.pitchStart ?? pitch, t);
-    roll = mix(track.rollStart ?? roll, track.rollEnd ?? track.rollStart ?? roll, t);
-    const fromPose = track.poseStart || poseEnd, toPose = track.poseEnd || fromPose;
-    if (i === shotIndex) { action = track.action; poseStart = fromPose; poseEnd = toPose; poseProgress = t * t * (3 - 2 * t); }
-    else { poseStart = poseEnd = toPose; poseProgress = 1; }
+    phase = (shot.takeStartFrame || 0) / project.fps + (i === shotIndex ? localTime : shot.duration);
+    const start = {at:0, position:track.start, rotation:track.rotationStart ?? rotation, pitch:track.pitchStart ?? pitch, roll:track.rollStart ?? roll, pose:track.poseStart || poseEnd};
+    const end = {at:1, position:track.end, rotation:track.rotationEnd ?? start.rotation, pitch:track.pitchEnd ?? start.pitch, roll:track.rollEnd ?? start.roll, pose:track.poseEnd || start.pose};
+    const progress = clamp(phase/take.duration,0,1);
+    const [left,right] = segment(track.keys,start,end,progress);
+    const hold=(left.holdFrames || 0)/(take.duration*project.fps);
+    const t = clamp((progress-left.at-hold)/(right.at-left.at-hold),0,1);
+    position = mix3(left.position,right.position,t);
+    rotation = mix(left.rotation,right.rotation,t);
+    pitch = mix(left.pitch,right.pitch,t);
+    roll = mix(left.roll,right.roll,t);
+    poseStart = left.pose; poseEnd = right.pose; poseProgress = t*t*(3-2*t);
+    if (i === shotIndex) {action = hold && progress<left.at+hold ? 'hold' : left.action || track.action; actionProgress = t;}
+    else if (progress === 1) poseStart = poseEnd;
   }
-  return { position, action, rotation, pitch, roll, poseStart, poseEnd, poseProgress };
+  const mark = [...position], markRoll = roll;
+  if (action === 'walk' || action === 'run') {
+    position[1] += Math.abs(Math.sin(phase*(action === 'run' ? 12 : 7))) * .07;
+    roll += Math.sin(phase*7)*.035*180/Math.PI;
+  }
+  if (action === 'jump') position[1] += Math.sin(actionProgress*Math.PI)*1.2;
+  if (action === 'float') position[1] += .4 + Math.sin(phase*2)*.1;
+  const time = actor.type === 'rings' ? shotOffset(project,project.shots[shotIndex].id) + localTime : 0;
+  return {position,mark,markRoll,action,rotation,pitch,roll,poseStart,poseEnd,poseProgress, orbital:actor.type === 'rings' ? [Math.sin(time*.4)*.18,time*.38] : null};
 }
 // Shot overrides are local to that shot. Scrubbing does not depend on playback history.
 export function actorState(project, shot, actor) {
@@ -135,7 +195,7 @@ const vector = (v) => `(${v.map((n) => Number(n.toFixed(2))).join(', ')})`;
 export function buildPrompt(project, shot) {
   const index = project.shots.indexOf(shot);
   const visible = project.actors.filter(a => actorState(project, shot, a).visible);
-  const cast = visible.filter((a) => ['pill', 'pill-person', 'glb'].includes(a.type));
+  const cast = visible.filter(isCharacter);
   const props = visible.filter((a) => !cast.includes(a));
   const light = shotLight(project, shot);
   const placement = (a) => {
@@ -144,8 +204,23 @@ export function buildPrompt(project, shot) {
     return `${a.characterTag ? a.characterTag+' = ':''}${a.name} [object ID ${a.id}; ${['pill','pill-person'].includes(a.type) ? 'pill stand-in; replace with the approved reference assigned to this exact character' : a.type}], color ${state.color}, scale ${a.scale}, dimension multipliers ${vector(a.dimensions || [1,1,1])}: start ${vector(start.position)} m, facing ${start.rotation} degrees, pitch ${start.pitch}°, roll ${start.roll}°, pose ${start.poseStart}; end ${vector(end.position)} m, facing ${end.rotation} degrees, pitch ${end.pitch}°, roll ${end.roll}°, pose ${end.poseEnd}; action ${end.action}. Prop cue: ${state.note || 'default'}. Surface emission ${state.emissive}.${state.image ? ` Reference image ${state.imageName || '(embedded cue plate)'} is displayed on the panel, cropped from normalized top-left source region ${vector4(state.imageRegion)}. Attach the actual image file separately when using a generator.` : ''}`;
   };
   const c = shot.camera;
-  const lighting = light.mode === 'black' ? 'TRUE BLACK for this entire shot: no visible objects, background, grid, emission or lights.' : `${light.preset} lighting; mode ${light.mode}; key intensity ${light.mode === 'local' ? 0 : light.intensity}, ambient ${light.mode === 'local' ? 0 : light.ambient ?? 'preset'}. Key azimuth ${light.azimuth}°, elevation ${light.elevation}°. Background ${light.mode === 'local' ? '#000000' : light.background}, ground ${light.ground}. ${light.practicals.map(l => `Local light follows ${l.actorId}, world-space offset ${vector(l.offset)} m, color ${l.color}, intensity ${l.intensity}, range ${l.distance} m.`).join(' ')} Preserve directional shadow continuity.`;
-  return `Create one continuous ${shot.duration}-second ${project.aspect} shot at ${project.fps} fps.\n\nPURPOSE\n${shot.purpose}\n\nSETTING AND GEOMETRY\n${project.setting}\nRight-handed stage coordinates: X right, Y up, +Z toward the front of the stage. Camera looks toward its target. Positions are in meters.\n${[...cast, ...props].map(placement).join('\n')}\nHidden in this shot: ${project.actors.filter(a => !actorState(project, shot, a).visible).map(a => a.name).join(', ') || 'none'}.\n\nACTION / LOCAL TIMELINE\n0.00–${shot.duration.toFixed(2)}s: ${shot.action}\nStart with the positions above, perform only the specified actions, end at the listed end positions.\n\nCAMERA\n${shot.size}; ${c.movement} movement; ${c.easing} interpolation. Camera start ${vector(c.start.position)} m, end ${vector(c.movement === 'static' ? c.start.position : c.end.position)} m. Look-at target start ${vector(c.start.target)} m, end ${vector(c.end.target)} m. Camera roll ${c.rollStart||0}° → ${c.rollEnd||0}°. Lens ${c.start.lens} → ${c.end.lens} mm, 36 mm sensor-width reference, aperture f/${c.aperture}; focus intention ${c.focus} m. ${c.movement === 'orbit' ? `Follow a signed ${orbitSweep(c).toFixed(2)}-degree orbit around the moving look-at target; positive/negative specify opposite directions; interpolate radius and height.` : 'Translate between the listed positions.'}\n\nLIGHT\n${lighting}\n\nSOUND\n${shot.sound}\n\nCONTINUITY AND FINISH\nKeep character identity, wardrobe, prop scale and screen direction consistent throughout this shot. No extra characters, text or unrequested cuts. ${shot.notes || 'Use the previz as a spatial and timing guide; replace blockout forms with approved production designs.'}\nOptical values are creative guidance; exact simulation depends on the chosen video model. No model-specific attachment syntax is assumed.`;
+  const lighting = light.mode === 'scene' && light.rig ? describeLightRig(light) + ' ' + light.practicals.map(l=>`Practical ${l.actorId} at offset ${vector(l.offset)}, intensity ${l.intensity}.`).join(' ') : light.mode === 'black' ? 'TRUE BLACK for this entire shot: no visible objects, background, grid, emission or lights.' : `${light.preset} lighting; mode ${light.mode}; key intensity ${light.mode === 'local' ? 0 : light.intensity}, ambient ${light.mode === 'local' ? 0 : light.ambient ?? 'preset'}. Key azimuth ${light.azimuth}°, elevation ${light.elevation}°. Background ${light.mode === 'local' ? '#000000' : light.background}, ground ${light.ground}. ${light.practicals.map(l => `Local light follows ${l.actorId}, world-space offset ${vector(l.offset)} m, color ${l.color}, intensity ${l.intensity}, range ${l.distance} m.`).join(' ')} Preserve directional shadow continuity.`;
+  const take=performanceFor(project,shot), offset=(shot.takeStartFrame || 0)/project.fps;
+  const cameraTimes=[...new Set([0,shot.duration/2,shot.duration,...(c.keys || []).map(k=>k.at*shot.duration)])].sort((a,b)=>a-b);
+  const cameraSamples=cameraTimes.map(time=>{
+    const sample=evaluateShot(shot,time);
+    return `${time.toFixed(3)}s: camera ${vector(sample.position)}, aim ${vector(sample.target)}, ${sample.lens.toFixed(1)} mm, focus cue ${sample.focus.toFixed(2)} m, roll ${sample.roll.toFixed(1)}°.`;
+  });
+  const actionSamples=visible.flatMap(actor=>{
+    const track=take.blocking.find(b=>b.actorId===actor.id);
+    if (!track && actor.type!=='rings') return [];
+    const times=[...new Set([0,shot.duration/2,shot.duration,...(track?.keys || []).map(k=>k.at*take.duration-offset).filter(t=>t>=0 && t<=shot.duration)])].sort((a,b)=>a-b);
+    return times.map(t=>{
+      const sample=actorPose(project,index,t,actor);
+      return `${t.toFixed(3)}s: ${actor.characterTag || actor.id} ${sample.action} at ${vector(sample.position)}, yaw ${sample.rotation.toFixed(1)}°, roll ${sample.roll.toFixed(1)}°${sample.orbital ? ', orbital X/Y radians '+sample.orbital.map(v=>v.toFixed(3)).join('/') : ''}.`;
+    });
+  });
+  return `Create one continuous ${shot.duration}-second ${project.aspect} shot at ${project.fps} fps.\n\nPURPOSE\n${shot.purpose}\n\nSETTING AND GEOMETRY\n${project.setting}\nRight-handed stage coordinates: X right, Y up, +Z toward the front of the stage. Camera looks toward its target. Positions are in meters.\n${[...cast, ...props].map(placement).join('\n')}\nHidden in this shot: ${project.actors.filter(a => !actorState(project, shot, a).visible).map(a => a.name).join(', ') || 'none'}.\n\nACTION / LOCAL TIMELINE\n0.00–${shot.duration.toFixed(2)}s: ${shot.action}\nStart with the positions above, perform only the specified actions, end at the listed end positions.\n\nCAMERA\n${shot.size}; ${c.movement} movement; ${c.easing} interpolation. Camera start ${vector(c.start.position)} m, end ${vector(c.movement === 'static' ? c.start.position : c.end.position)} m. Look-at target start ${vector(c.start.target)} m, end ${vector(c.end.target)} m. Camera roll ${c.rollStart||0}° → ${c.rollEnd||0}°. Lens ${c.start.lens} → ${c.end.lens} mm, 36 mm sensor-width reference, aperture f/${c.aperture}; focus intention ${c.focus} m. ${c.movement === 'orbit' ? `Follow a signed ${orbitSweep(c).toFixed(2)}-degree orbit around the moving look-at target; positive/negative specify opposite directions; interpolate radius and height.` : 'Translate between the listed positions.'}\n${cameraSamples.join('\n')}\n\nBLOCKING SAMPLES\n${actionSamples.join('\n')}\n\nLIGHT\n${lighting}\n\nSOUND\n${shot.sound}\n\nCONTINUITY AND FINISH\nKeep character identity, wardrobe, prop scale and screen direction consistent throughout this shot. No extra characters, text or unrequested cuts. ${shot.notes || 'Use the previz as a spatial and timing guide; replace blockout forms with approved production designs.'}\nOptical values are creative guidance; exact simulation depends on the chosen video model. No model-specific attachment syntax is assumed.`;
 }
 export function projectPrompt(p) { return p.shots.map((s, i) => `=== ${String(i + 1).padStart(2, '0')} · ${s.name} ===\n${buildPrompt(p, s)}`).join('\n\n'); }
 // Offline keyword assistant: deliberately does not claim LLM understanding.
@@ -180,7 +255,8 @@ export function validateProject(value) {
     for (const k of ['background','ground']) if (l[k] !== undefined) color(l[k]);
   };
   const p = clone(value);
-  if (![SCHEMA,STATE_SCHEMA].includes(p?.schema)) fail(`schema harus ${SCHEMA} atau ${STATE_SCHEMA}`);
+  if (![SCHEMA,STATE_SCHEMA,MOTION_SCHEMA].includes(p?.schema)) fail('schema proyek tidak dikenal');
+  if (p.aragiPlan !== undefined) validateAragiPlan(p.aragiPlan);
   str(p.name, 'nama proyek', 160); str(p.description, 'deskripsi'); str(p.setting, 'setting');
   if(p.sourceStory!==undefined){str(p.sourceStory.name,'nama sumber',200);str(p.sourceStory.text,'cerita asli',200000);}
   if (!['16:9', '9:16', '4:3', '1:1', '21:9', '48:9'].includes(p.aspect)) fail('rasio');
@@ -214,6 +290,47 @@ export function validateProject(value) {
     if (a.type === 'glb' && (typeof a.asset !== 'string' || !/^data:(model\/gltf-binary|application\/octet-stream);base64,[A-Za-z0-9+/=]+$/.test(a.asset) || a.asset.length > 17000000)) fail('GLB harus embedded, maksimal 12 MB');
   }
   if (!Array.isArray(p.shots) || p.shots.length < 1 || p.shots.length > 120) fail('butuh 1–120 shot');
+  function checkKeys(keys, check) {
+    if (keys === undefined) return;
+    if (!Array.isArray(keys) || keys.length > 120) fail('maksimal 120 key per jalur');
+    let last = 0;
+    for (const key of keys) {
+      if (!key || !Number.isFinite(key.at) || key.at <= last || key.at >= 1) fail('key harus berurutan di antara IN dan OUT');
+      check(key); last = key.at;
+    }
+  }
+  const postures = ['stand','sit','kneel','crouch','lie'], actions = ['hold','walk','run','jump','float'];
+  function checkBlocking(blocking,duration) {
+    if (!Array.isArray(blocking) || blocking.length>80) fail('blocking');
+    const tracks = new Set();
+    for (const b of blocking) {
+      if (!ids.has(b.actorId) || tracks.has(b.actorId)) fail('ID blocking hilang/duplikat');
+      tracks.add(b.actorId); vec(b.start,'awal blocking'); vec(b.end,'akhir blocking');
+      if (!actions.includes(b.action)) fail('aksi blocking');
+      for (const k of ['poseStart','poseEnd']) if (b[k] !== undefined && !postures.includes(b[k])) fail('cue postur');
+      for (const k of ['rotationStart','rotationEnd','pitchStart','pitchEnd','rollStart','rollEnd']) if (b[k] !== undefined) finite(b[k],-360,360,'rotasi blocking');
+      checkKeys(b.keys, key => {
+        vec(key.position,'posisi key');
+        for (const k of ['rotation','pitch','roll']) finite(key[k],-360,360,'rotasi key');
+        if (!postures.includes(key.pose) || !actions.includes(key.action)) fail('postur atau aksi key');
+      });
+      (b.keys || []).forEach((key,i)=>{
+        if (key.holdFrames===undefined) return;
+        const limit=((b.keys[i+1]?.at ?? 1)-key.at)*duration*p.fps;
+        if (!Number.isInteger(key.holdFrames) || key.holdFrames<0 || key.holdFrames>=limit-1e-8) fail('durasi diam harus selesai sebelum key berikutnya');
+      });
+    }
+  }
+  const takes = new Map();
+  if (p.takes !== undefined) {
+    if (!Array.isArray(p.takes) || p.takes.length > 120) fail('maksimal 120 take');
+    for (const take of p.takes) {
+      str(take.id,'ID take',160); str(take.sceneId,'ID scene',160);
+      if (!take.id || takes.has(take.id)) fail('ID take duplikat/kosong');
+      finite(take.duration,1/p.fps-1e-9,1800,'durasi take'); checkBlocking(take.blocking,take.duration);
+      takes.set(take.id,take);
+    }
+  }
   const shotIds = new Set();
   for (const s of p.shots) {
     str(s.id, 'ID shot', 160); if (shotIds.has(s.id)) fail('ID shot duplikat'); shotIds.add(s.id);
@@ -232,11 +349,23 @@ export function validateProject(value) {
     if(c.orbitDegrees!==undefined)finite(c.orbitDegrees,-1080,1080,'orbit -1080 sampai1080 derajat');
     for(const k of ['rollStart','rollEnd'])if(c[k]!==undefined)finite(c[k],-360,360,'camera roll');
     finite(c.aperture, 1, 22, 'aperture'); finite(c.focus, 0.1, 1000, 'focus');
-    for (const f of [c.start, c.end]) { if (!f) fail('frame kamera'); vec(f.position, 'posisi kamera'); vec(f.target, 'target kamera'); finite(f.lens, 12, 200, 'lensa 12–200 mm'); if (Math.hypot(...f.position.map((n, i) => n - f.target[i])) < 0.01) fail('kamera dan target harus terpisah'); }
-    if (!Array.isArray(s.blocking) || s.blocking.length > 80) fail('blocking');
-    const tracks = new Set();
+    for (const f of [c.start, c.end]) { if (!f) fail('frame kamera'); if (f.focus!==undefined) finite(f.focus,.1,1000,'fokus key'); vec(f.position, 'posisi kamera'); vec(f.target, 'target kamera'); finite(f.lens, 12, 200, 'lensa 12–200 mm'); if (Math.hypot(...f.position.map((n, i) => n - f.target[i])) < 0.01) fail('kamera dan target harus terpisah'); }
+    checkKeys(c.keys, key => {
+      vec(key.position,'posisi key kamera'); vec(key.target,'target key kamera'); finite(key.lens,12,200,'lensa key');
+      if (Math.hypot(...key.position.map((v,i)=>v-key.target[i]))<.01) fail('kamera dan target key harus terpisah');
+      finite(key.focus,.1,1000,'fokus key'); finite(key.roll,-360,360,'roll key');
+    });
+    checkBlocking(s.blocking,s.duration);
+    if (s.takeId !== undefined || s.takeStartFrame !== undefined) {
+      const take = takes.get(s.takeId);
+      if (!take || take.sceneId !== s.edit.sequence_id || !Number.isSafeInteger(s.takeStartFrame) || s.takeStartFrame<0 || s.takeStartFrame/p.fps+s.duration>take.duration+1e-8 || s.blocking.length) fail('rentang shot atau blocking pada take tidak valid');
+    }
+    if (s.composition) {
+      for (const key of ['foregroundId','revealId']) if (s.composition[key] && !ids.has(s.composition[key])) fail('objek QC hilang');
+      if (s.composition.revealFrame !== undefined && (!Number.isInteger(s.composition.revealFrame) || s.composition.revealFrame<0 || s.composition.revealFrame>=Math.round(s.duration*p.fps))) fail('frame reveal di luar shot');
+    }
     if (s.light !== undefined) {
-      lightOverride(s.light);
+      lightOverride(s.light); if (s.light.rig !== undefined) validateLightRig(s.light.rig);
       if (s.light.practicals !== undefined) {
         if (!Array.isArray(s.light.practicals) || s.light.practicals.length>4) fail('maksimal 4 lampu lokal');
         for (const l of s.light.practicals) { if (!ids.has(l.actorId)) fail('objek lampu lokal hilang'); color(l.color); vec(l.offset,'offset lampu'); finite(l.intensity,0,100,'intensitas lampu lokal'); finite(l.distance,.1,30,'jarak lampu lokal'); }
@@ -254,13 +383,10 @@ export function validateProject(value) {
         if(state.imageName!==undefined)str(state.imageName,'nama plate state',200);
       }
     }
-    for (const b of s.blocking) { if (!ids.has(b.actorId) || tracks.has(b.actorId)) fail('ID blocking hilang/duplikat'); tracks.add(b.actorId); vec(b.start, 'awal blocking'); vec(b.end, 'akhir blocking'); if (!['hold', 'walk', 'run', 'jump', 'float'].includes(b.action)) fail('aksi blocking');
-      for (const k of ['poseStart','poseEnd']) if (b[k] !== undefined && !['stand','sit','kneel','crouch','lie'].includes(b[k])) fail('cue postur');
-      for (const k of ['rotationStart','rotationEnd','pitchStart','pitchEnd','rollStart','rollEnd']) if (b[k] !== undefined) finite(b[k],-360,360,'rotasi blocking');
-    }
   }
   if (totalDuration(p) > 1800) fail('total durasi maksimal 30 menit');
   // New-feature exports must not silently render as daylight/static props in CP001.
   if(p.actors.some(a=>a.type==='pill-person'||a.type==='panel'||a.dimensions!==undefined||a.pitch!==undefined||a.roll!==undefined)||p.shots.some(s=>s.camera.orbitDegrees!==undefined||s.camera.rollStart!==undefined||s.camera.rollEnd!==undefined||s.states!==undefined||s.light!==undefined||s.blocking.some(b=>['pitchStart','pitchEnd','rollStart','rollEnd'].some(k=>b[k]!==undefined))))p.schema=STATE_SCHEMA;
+  if (p.takes || p.aragiPlan || p.shots.some(s=>s.camera.keys?.length || s.blocking.some(b=>b.keys?.length) || s.composition || s.light?.rig)) p.schema=MOTION_SCHEMA;
   return p;
 }

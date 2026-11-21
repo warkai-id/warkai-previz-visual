@@ -71,3 +71,11 @@ Angka diverifikasi dengan `ffprobe -count_frames`. Frame start/end dan contact s
 - Uji render memakai 16:9. Pilihan rasio lain tersedia dengan matematik dimensi rasio asli, tetapi belum semuanya memiliki video QC tersendiri.
 - Audio, DoF blur, rig realistis, auto-contact kursi/lantai, head-yaw terpisah, multiuser dan video-generator API belum diimplementasikan.
 - QC framing atau prop pada proyek film adalah pekerjaan pemilik konten; keberhasilan ekspor tidak sama dengan persetujuan kreatif sebuah shot.
+
+## Engine dan ekspor per klip, 21 November 2026
+
+Uji HTTP dengan FFmpeg/ffprobe lokal mencakup dua POST tertunda, pembatalan dan pemakaian ulang slot encoder, pemulihan batch setelah restart serta dua MP4 dari plan Aragi. Setiap klip memiliki ukuran, durasi, jumlah frame dan SHA-256 yang diukur.
+
+Uji UI pada origin lokal terpisah menggunakan dua karakter Pill dan cerita anonim. Dua klip Clean 720×1280 serta dua Director Breakdown 1280×720 masing-masing berisi 96 frame pada 24 fps (4 detik). Shot pertama melintasi batas klip di frame proyek 96. Kamera kedua mulai di frame proyek 151. QC Director memeriksa 151 frame shot pertama. Penilaian ini berlaku untuk fixture tersebut.
+
+Uji model mengambil 144 frame gerak Pill sebelum dan sesudah dua cut kamera. Posisi, rotasi, fase postur, aksi serta jeda diam cocok pada setiap frame. Uji juga mencakup kamera signed orbit, key yang diedit lewat perintah Director, rig key/fill dan pemulihan preset, tabrakan set serta occlusion/reveal.

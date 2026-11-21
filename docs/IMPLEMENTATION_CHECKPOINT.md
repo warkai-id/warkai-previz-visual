@@ -72,3 +72,9 @@ Skill: senior-fullstack untuk implementasi/audit; anti-slop mode during dipilih 
 ### Pelaksanaan 21 November, antrean render
 
 Probe pada baseline menerima dua job serentak. Setelah perubahan, dua body tertunda menghasilkan satu HTTP 200 dan satu HTTP 409. JSON rusak dan dimensi invalid melepas jalur masuk, DELETE menunggu encoder berhenti dan job berikutnya diterima. Verifikasi lokal: 20 tes model/Director, 2 tes HTTP render dan build lulus.
+
+### Checkpoint implementasi engine, 21 November 2026
+
+Studio menyediakan impor plan final, kamera dan Pill multi-key, cut lintas satu take, inspeksi komposisi per frame, lampu key/fill, serta Clean dan Director Breakdown per klip. Proyek, aset dan MP4 terikat hash revisi. Buka README untuk alur pengguna, docs/PROJECT_FORMAT.md untuk schema, docs/LOCAL_CLIP_EXPORT.md untuk kontrak Aragi dan docs/QC.md untuk bukti.
+
+Render memerlukan tab WebGL untuk mengirim frame. Plan tekstual perlu pengarahan blocking dan kamera. Penilaian gambar serta hasil video generator tetap dilakukan Director. Uji dari aplikasi Aragi pada sisi pemanggil dapat dimulai dengan examples/aragi-manual.plan.json. Tidak ada perubahan aplikasi Aragi atau penggunaan kredit.

@@ -1,8 +1,9 @@
+import {applyLightRig} from './light-rig.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { evaluateShot, actorPose, actorState, shotLight, imageUV, aspectValue, locateShot, totalDuration, mix, mix3 } from './model.js';
+import { evaluateShot, actorPose, actorState, shotLight, imageUV, aspectValue, locateShot, totalDuration, mix, mix3, cameraPathTimes } from './model.js';
 
 const v3 = (a) => new THREE.Vector3(...a);
 const mat = (c, extra = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.72, ...extra });
@@ -80,9 +81,7 @@ export class PrevizEngine {
     this.path = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color:'#257963',depthTest:false})); this.helpers.add(this.path);this.path.renderOrder=998;this.pathArrows=new THREE.Group();this.helpers.add(this.pathArrows);
     this.cameraMarker = solid(new THREE.BoxGeometry(0.36, 0.25, 0.5), mat('#243b34')); this.helpers.add(this.cameraMarker);
     this.keyMarkers=new Map();
-    for(const key of ['start','end'])for(const part of ['position','target']){const id=key+'.'+part;const marker=solid(new THREE.SphereGeometry(part==='target'?.09:.14,16,12),new THREE.MeshBasicMaterial({color:key==='start'?'#72cbef':'#edb767',depthTest:false}));marker.renderOrder=999;marker.userData.cameraKey=id;marker.name=id;this.helpers.add(marker);this.keyMarkers.set(id,marker);}
     this.keyLabels=document.createElement('div');this.keyLabels.className='camera-key-labels';stageHost.parentElement.append(this.keyLabels);
-    for(const id of this.keyMarkers.keys()){const label=document.createElement('button');label.className='camera-key-label';label.textContent=(id.startsWith('start')?'IN':'OUT')+(id.endsWith('target')?' · TARGET':' · CAM');label.onclick=()=>onCameraKey?.(id);label.dataset.key=id;this.keyLabels.append(label);}
     this.key = new THREE.DirectionalLight('#fff1d6', 3.5); this.key.castShadow = true; this.key.shadow.mapSize.set(2048, 2048); Object.assign(this.key.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, near: 0.1, far: 60 }); this.key.shadow.bias = -0.0003; this.key.shadow.normalBias = 0.025; this.scene.add(this.key);
     this.hemi = new THREE.HemisphereLight('#e3eff2', '#a09883', 2); this.scene.add(this.hemi);
     this.practicals = Array.from({length:4},()=> { const light = new THREE.PointLight('#ffffff',0,3,2); this.scene.add(light); return light; });
@@ -96,7 +95,7 @@ export class PrevizEngine {
     this.stageRenderer.domElement.addEventListener('pointerup', (e) => {
       if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4 || this.transform.axis) return;
       const r = this.stageRenderer.domElement.getBoundingClientRect(); this.raycaster.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), this.stageCamera);
-      const keyHit=this.raycaster.intersectObjects([...this.keyMarkers.values()],false)[0];if(keyHit&&this.helpers.visible){onCameraKey?.(keyHit.object.userData.cameraKey);return;}
+      const keyHit=this.raycaster.intersectObjects([...this.keyMarkers.values()].filter(m=>m.visible),false)[0];if(keyHit&&this.helpers.visible){onCameraKey?.(keyHit.object.userData.cameraKey);return;}
       const hit = this.raycaster.intersectObjects([...this.objects.values()].filter(o=>o.visible), true)[0];
       if (hit) { let o = hit.object; while (o && !o.userData.actorId) o = o.parent; if (o) onSelect(o.userData.actorId); }
     });
@@ -152,6 +151,7 @@ export class PrevizEngine {
     if (light.mode === 'local' || light.mode === 'black') { this.hemi.intensity=0; this.key.intensity=0; }
     const az = THREE.MathUtils.degToRad(light.azimuth), el = THREE.MathUtils.degToRad(light.elevation);
     this.key.position.set(18 * Math.cos(el) * Math.sin(az), 18 * Math.sin(el), 18 * Math.cos(el) * Math.cos(az)); this.ground.material.color.set(light.ground); this.scene.background.set(light.mode === 'local' || light.mode === 'black' ? '#000000' : light.background);
+    applyLightRig(this,light);
   }
   applyObjectState(root, actor, state) {
     const dark=this.currentLight.mode==='local'||this.currentLight.mode==='black';
@@ -166,7 +166,30 @@ export class PrevizEngine {
       }
     });
   }
-  selectCameraKey(id){this.selected=null;this.transform.attach(this.keyMarkers.get(id));this.transform.setMode('translate');this.selectionBox.visible=false;}
+  syncKeyMarkers(shot) {
+    const marks=[['start','IN'],...(shot.camera.keys || []).map((_,i)=>['keys.'+i,'K'+(i+1)]),['end','OUT']];
+    const active=new Set();
+    for (const [key,name] of marks) for (const part of ['position','target']) {
+      const id=key+'.'+part;
+      active.add(id);
+      if(this.keyMarkers.has(id)) continue;
+      const marker=solid(new THREE.SphereGeometry(part==='target'?.09:.14,16,12),new THREE.MeshBasicMaterial({color:key==='end'?'#edb767':'#72cbef',depthTest:false}));
+      marker.renderOrder=999;marker.userData.cameraKey=id;this.helpers.add(marker);this.keyMarkers.set(id,marker);
+      const label=document.createElement('button');label.className='camera-key-label';label.dataset.key=id;
+      label.textContent=name+(part==='target'?' · TARGET':' · CAM');label.onclick=()=>this.onCameraKey?.(id);this.keyLabels.append(label);
+    }
+    for (const label of [...this.keyLabels.children]) if(!active.has(label.dataset.key)) {
+      const marker=this.keyMarkers.get(label.dataset.key);
+      if(this.transform.object===marker)this.transform.detach();
+      this.helpers.remove(marker);this.disposeObject(marker);this.keyMarkers.delete(label.dataset.key);label.remove();
+    }
+  }
+  selectCameraKey(id){
+    const marker=this.keyMarkers.get(id);
+    this.selected=null;
+    if(marker)this.transform.attach(marker);else this.transform.detach();
+    this.transform.setMode('translate');this.selectionBox.visible=false;
+  }
   select(id, mode = 'translate') {
     this.selected = id; const o = this.objects.get(id);
     if (o) { this.transform.attach(o); this.transform.setMode(mode); this.selectionBox.setFromObject(o); this.selectionBox.visible = true; }
@@ -183,7 +206,6 @@ export class PrevizEngine {
     const p = this.project; if (!p) return;
     const { shot, index, localTime } = locateShot(p, time), pose = evaluateShot(shot, localTime); this.currentPose = pose;
     this.currentLight=shotLight(p,shot); this.applyLighting(this.currentLight);
-    if (shot.camera.movement === 'handheld') { pose.position[0] += Math.sin(localTime * 4.7) * 0.025; pose.position[1] += Math.sin(localTime * 6.3) * 0.018; }
     this.camera.position.fromArray(pose.position); this.camera.lookAt(v3(pose.target));this.camera.rotateZ(THREE.MathUtils.degToRad(pose.roll));
     // Horizontal sensor width stays 36 mm for every output aspect ratio.
     this.camera.filmGauge = 36 / Math.min(this.camera.aspect, 1);
@@ -193,10 +215,8 @@ export class PrevizEngine {
       if (!(this.dragging && a.id === this.selected)) { o.position.fromArray(ap.position); o.rotation.set(THREE.MathUtils.degToRad(ap.pitch), THREE.MathUtils.degToRad(ap.rotation), THREE.MathUtils.degToRad(ap.roll)); }
       o.scale.setScalar(a.scale); poseFigure(o, a, ap); o.scale.multiply(v3(a.dimensions || [1,1,1]));
       const state=actorState(p,shot,a); o.visible=state.visible; this.applyObjectState(o,a,state);
-      if (ap.action === 'walk' || ap.action === 'run') { o.position.y += Math.abs(Math.sin(localTime * (ap.action === 'run' ? 12 : 7))) * 0.07; o.rotation.z += Math.sin(localTime * 7) * 0.035; }
-      if (ap.action === 'jump') o.position.y += Math.sin(pose.progress * Math.PI) * 1.2;
-      if (ap.action === 'float') o.position.y += 0.4 + Math.sin(localTime * 2) * 0.1;
-      const orbital = o.getObjectByName('orbital'); if (orbital) { orbital.rotation.y = time * 0.38; orbital.rotation.x = Math.sin(time * 0.4) * 0.18; }
+      const orbital = ap.orbital && o.getObjectByName('orbital');
+      if (orbital) { orbital.rotation.x = ap.orbital[0]; orbital.rotation.y = ap.orbital[1]; }
       this.mixers.get(a.id)?.setTime(time);
     }
     this.practicals.forEach((light,i)=>{const cfg=this.currentLight.practicals[i],o=cfg&&this.objects.get(cfg.actorId);light.intensity=cfg&&o?.visible&&this.currentLight.mode!=='black'?cfg.intensity:0;if(cfg&&o){light.color.set(cfg.color);light.distance=cfg.distance;light.position.copy(o.position).add(v3(cfg.offset));}});
@@ -204,13 +224,14 @@ export class PrevizEngine {
     this.cameraMarker.position.copy(this.camera.position); this.cameraMarker.quaternion.copy(this.camera.quaternion);
     this.helperCamera.copy(this.camera); this.helperCamera.far = 3; this.helperCamera.near = .2; this.helperCamera.updateProjectionMatrix(); this.cameraHelper.update();
     if (this.lastShot !== shot || this.pathDirty) {
-      const points = Array.from({ length: 65 }, (_, i) => v3(evaluateShot(shot, shot.duration * i / 64).position));
+      this.syncKeyMarkers(shot);
+      const points = cameraPathTimes(shot).map(t=>v3(evaluateShot(shot,t).position));
       this.path.geometry.dispose(); this.path.geometry = new THREE.BufferGeometry().setFromPoints(points); this.path.computeLineDistances();
       for(const o of this.pathArrows.children){o.line.geometry.dispose();o.cone.geometry.dispose();o.line.material.dispose();o.cone.material.dispose();}this.pathArrows.clear();
-      for(let i=8;i<64;i+=8){const from=points[i-2],to=points[i],dir=to.clone().sub(from);if(dir.length()>.001){const arrow=new THREE.ArrowHelper(dir.normalize(),from,.38,'#328d71',.17,.09);arrow.line.material.depthTest=false;arrow.cone.material.depthTest=false;this.pathArrows.add(arrow);}}
+      for(let i=8;i<points.length;i+=Math.max(8,Math.floor(points.length/8))){const from=points[i-2],to=points[i],dir=to.clone().sub(from);if(dir.length()>.001){const arrow=new THREE.ArrowHelper(dir.normalize(),from,.38,'#328d71',.17,.09);arrow.line.material.depthTest=false;arrow.cone.material.depthTest=false;this.pathArrows.add(arrow);}}
       this.lastShot = shot; this.pathDirty = false;
     }
-    for(const [id,marker]of this.keyMarkers){if(!(this.dragging&&this.transform.object===marker)){const [key,part]=id.split('.');marker.position.fromArray(shot.camera[key][part]);}}
+    for(const [id,marker]of this.keyMarkers){if(!(this.dragging&&this.transform.object===marker))marker.position.fromArray(id.split('.').reduce((v,k)=>v[k],shot.camera));}
     for(const label of this.keyLabels.children){const marker=this.keyMarkers.get(label.dataset.key),point=marker.position.clone().project(this.stageCamera);marker.visible=!!this.cameraKeysEnabled;label.hidden=!guides||!this.cameraKeysEnabled||point.z>1;label.style.left=`${(point.x+1)*50}%`;label.style.top=`${(-point.y+1)*50}%`;}
     this.controls.update(); this.grid.visible = grid;
     if (render) {
@@ -256,7 +277,7 @@ export class PrevizEngine {
     ctx.strokeStyle = '#30383b'; ctx.lineWidth = 0.5;
     for (let i = -15; i <= 15; i++) { ctx.beginPath(); ctx.moveTo(x(i), 0); ctx.lineTo(x(i), h); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, y(i)); ctx.lineTo(w, y(i)); ctx.stroke(); }
     const { shot, index, localTime } = locateShot(this.project, time), pose = evaluateShot(shot, localTime);
-    ctx.strokeStyle = '#8fbba0'; ctx.setLineDash([3, 3]); ctx.beginPath(); for (let i = 0; i <= 40; i++) { const p = evaluateShot(shot, shot.duration * i / 40).position; i ? ctx.lineTo(x(p[0]), y(p[2])) : ctx.moveTo(x(p[0]), y(p[2])); } ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = '#8fbba0'; ctx.setLineDash([3, 3]); ctx.beginPath(); cameraPathTimes(shot).forEach((t,i)=>{ const p=evaluateShot(shot,t).position; i ? ctx.lineTo(x(p[0]),y(p[2])) : ctx.moveTo(x(p[0]),y(p[2])); }); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle = '#a5c9af20'; ctx.strokeStyle = '#a5c9af88'; ctx.beginPath(); ctx.moveTo(x(pose.position[0]), y(pose.position[2]));
     const theta = Math.atan2(pose.target[2] - pose.position[2], pose.target[0] - pose.position[0]), spread = Math.atan(18 / pose.lens);
     for (const sign of [-1, 1]) ctx.lineTo(x(pose.position[0] + Math.cos(theta + sign * spread) * 5), y(pose.position[2] + Math.sin(theta + sign * spread) * 5)); ctx.closePath(); ctx.fill(); ctx.stroke();

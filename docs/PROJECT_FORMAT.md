@@ -105,3 +105,13 @@ Objek panel dapat memuat `image` data URL PNG/JPEG/WebP embedded maksimal 4 MB, 
 `sourceStory` mempertahankan nama dokumen, teks asli (maksimal 200.000 karakter), status DRAFT dan metode planner offline. Teks impor diperlakukan sebagai bahan cerita; tidak dijalankan sebagai instruksi sistem. `directorPrompt` merekam revisi terakhir per shot. Teks asli dokumen tidak otomatis dimasukkan seluruhnya ke prompt setiap shot; aksi shot dan data stage menjadi handoff.
 
 `insertShot` menyisip shot di sebelah pilihan, memakai key kamera awal/akhir tetangga, state/cahaya dan aksi sebagai draf. Durasi default 5 detik; ID lama dipertahankan. Shot setelah titik sisip dalam sequence sama digeser pada EDIT. Reorder/duplikat/hapus biasa masih memerlukan peninjauan offset EDIT manual. Jalur kamera dan aktor memakai dua endpoint per shot; waypoint tengah dalam satu shot belum tersedia.
+
+## Jalur dan take pada warkai-previz/3
+
+Impor bekerja pada salinan. Proyek lama memakai endpoint dan carry-over yang sama. Fitur berikut disimpan sebagai schema 3.
+
+- `camera.keys[]` menyimpan key interior terurut dengan `at` di antara 0 dan 1, position dan target dalam meter, lens dalam mm, focus dalam meter, roll dalam derajat. IN dan OUT memakai field camera.start/end yang sudah ada. Titik edit dibuat dari frame playhead. Mengubah durasi shot merentangkan waktu key relatif.
+- `blocking[].keys[]` menyimpan at, position, rotation (yaw), pitch, roll, pose dan action. holdFrames opsional menahan posisi sebelum bergerak ke mark berikutnya. Dua mark berposisi sama dapat membentuk jeda atau putar di tempat.
+- Saat kamera dipotong di dalam shot, `takes[]` menyimpan id, sceneId (sequence_id), durasi dan blocking. `shot.takeId` dan `takeStartFrame` menempatkan kamera pada waktu take. Data sebelumnya dapat dipulihkan lewat Undo. Mengedit blocking take memengaruhi semua kamera pada take itu.
+- `shot.composition` menerima foregroundId, revealId dan revealFrame lokal. `shot.light.rig` berisi key dan fill dengan position, target, color dan intensity, serta key.shadows. Fokus dan aperture tetap arahan optik.
+- Manifest klip memakai rentang frame global mulai inklusif dan akhir eksklusif. Proyek dengan aragiPlan menyimpan pembagian manual, kebutuhan dan referensi shot sumber. Lihat docs/LOCAL_CLIP_EXPORT.md.

@@ -8,9 +8,9 @@
     "dev": "vite --host 127.0.0.1 --strictPort",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --strictPort",
-    "test": "node --test src/model.test.js src/director.test.js",
+    "test": "node --test src/*.test.js",
     "validate": "node scripts/validate-project.mjs",
-    "test:render": "node --test scripts/render-api.test.mjs"
+    "test:render": "node --test scripts/*.test.mjs"
   },
   "dependencies": {
     "lucide": "0.468.0",

@@ -1,0 +1,71 @@
+{
+  "schema": "aragi.previz.plan.v1",
+  "storyHash": "569ea1cae1161636de0b773e27f12f431a3edccdc6fefa653a6940f5fab1b46c",
+  "mode": "manual",
+  "requirements": "Pertahankan arah gerak pemain dan posisi kursi.",
+  "target": {
+    "id": "wt-seedance-2.5-720",
+    "label": "Yunhui WT · Seedance 2.5",
+    "provider": "yunhui",
+    "ratios": [
+      "9:16",
+      "16:9",
+      "1:1",
+      "4:3",
+      "21:9"
+    ],
+    "minSeconds": 4,
+    "maxSeconds": 30,
+    "maxVideoReferences": 10,
+    "resolutions": [
+      "720p"
+    ],
+    "referenceSeconds": null
+  },
+  "ratio": "16:9",
+  "fps": 24,
+  "durationSeconds": 10,
+  "shots": [
+    {
+      "id": "SH001",
+      "text": "Seorang pemain melintasi ruangan dan berhenti di samping kursi."
+    },
+    {
+      "id": "SH002",
+      "text": "Lampu meja menyala."
+    }
+  ],
+  "clips": [
+    {
+      "id": "CL001",
+      "order": 1,
+      "direction": "Tampilkan jalur pemain dari samping.",
+      "startFrame": 0,
+      "endFrameExclusive": 96,
+      "startSeconds": 0,
+      "endSeconds": 4,
+      "durationSeconds": 4,
+      "shotIds": [
+        "SH001"
+      ],
+      "continuesPrevious": false,
+      "status": "planned"
+    },
+    {
+      "id": "CL002",
+      "order": 2,
+      "direction": "Perlihatkan lampu setelah pemain berhenti.",
+      "startFrame": 96,
+      "endFrameExclusive": 240,
+      "startSeconds": 4,
+      "endSeconds": 10,
+      "durationSeconds": 6,
+      "shotIds": [
+        "SH001",
+        "SH002"
+      ],
+      "continuesPrevious": true,
+      "status": "planned"
+    }
+  ]
+}

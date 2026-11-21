@@ -1,4 +1,10 @@
-import {directShot,insertShot,removeActor,storyToProject} from './director.js';
+import {motionInspector,directionChecks} from './shot-controls.js';
+import {inspectComposition,captureDirectorBreakdown} from './composition.js';
+import {ARAGI_PLAN_SCHEMA,projectFromAragiPlan,clipsForAragiExport} from './aragi-plan.js';
+import {exportClipBatch,resumeClipBatch} from './clip-export.js';
+import {defaultLightRig,lightRigInspector} from './light-rig.js';
+import {performanceFor} from './model.js';
+import {cutCamera,blockingTrack,addMotionKey,directShot,insertShot,removeActor,storyToProject} from './director.js';
 import {readStoryFile} from './story-import.js';
 import statesDemo from '../examples/prop-states-lighting.json';
 import './style.css';
@@ -6,7 +12,7 @@ import { createIcons, Accessibility, Armchair, ArrowLeft, ArrowRight, ArrowUpRig
 const icons = { Accessibility, Armchair, ArrowLeft, ArrowRight, ArrowUpRight, Box, Braces, Check, ChevronDown, Circle, CircleHelp, Clapperboard, Columns3, Copy, Download, Eye, EyeOff, FileCode2, Film, Focus, FolderOpen, GalleryHorizontalEnd, Grid2x2, Image, Layers3, ListVideo, Move, Orbit, Package, Pause, Pill, Play, Plus, Radar, Redo2, RotateCw, Save, Scan, SkipBack, SkipForward, SlidersHorizontal, Sofa, Sparkles, Sun, Trash2, Undo2, Upload, WandSparkles, Waypoints, X };
 import { parse as parseYAML, stringify as stringifyYAML } from 'yaml';
 import { PrevizEngine } from './engine.js';
-import { createDemo, makeShot, clone, uid, clamp, evaluateShot, locateShot, totalDuration, shotOffset, aspectValue, buildPrompt, projectPrompt, applyBrief, validateProject, actorPose, actorState, shotLight, shotManifest, mapLocalToSequence, isCharacter, nextCharacterIdentity, orbitSweep, setOrbitSweep } from './model.js';
+import { createDemo, makeShot, clone, uid, clamp, evaluateShot, locateShot, totalDuration, shotOffset, aspectValue, buildPrompt, projectPrompt, applyBrief, validateProject, actorPose, actorState, shotLight, shotManifest, mapLocalToSequence, isCharacter, nextCharacterIdentity, orbitSweep, alignOrbitEnd, setOrbitSweep } from './model.js';
 import { loadProject, saveProject } from './storage.js';
 
 const $ = (s) => document.querySelector(s);
@@ -14,11 +20,14 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<'
 const icon = (name, cls = '') => `<i data-lucide="${name}" class="${cls}"></i>`;
 const button = (name, action, title, cls = '') => `<button class="icon-btn ${cls}" data-action="${action}" title="${title}" aria-label="${title}">${icon(name)}</button>`;
 let project = validateProject(createDemo());
-try { const stored = await loadProject(); if (stored) project = validateProject(stored); } catch (e) { console.warn('Project restore:', e.message); }
+const linkedBatch = new URLSearchParams(location.search).get('batch');
+const workspaceKey=linkedBatch?'batch:'+linkedBatch:'current';
+try { const stored = !linkedBatch && await loadProject(); if (stored) project = validateProject(stored); } catch (e) { console.warn('Project restore:', e.message); }
 let activeId = project.shots[0].id, actorId = project.actors[0]?.id, tab = 'camera', time = 0, playing = false, guides = true, grid = true, third = true, view = 'iso', recording = false;
 let cameraKey=null,storySourceName='Pasted story';
 let history = [], future = [], saveTimer, referenceURL, exportCancelled = false;
 const pendingFeatures = true;
+let batchAbort;
 const current = () => project.shots.find(s => s.id === activeId) || project.shots[0];
 const actor = () => project.actors.find(a => a.id === actorId);
 function iconsRefresh() { createIcons({ icons, attrs: { 'stroke-width': 1.6 } }); }
@@ -43,16 +52,23 @@ if(!pendingFeatures){for(const selector of ['[data-action="story"]','[data-tab="
 function toast(message, error = false) { const el = $('#toast'); el.textContent = message; el.classList.toggle('error', error); el.classList.add('visible'); clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('visible'), 4800); }
 let engine;
 try { engine = new PrevizEngine($('#stage-view'), $('#camera-view'), $('#stage-labels'), (id) => { cameraKey=null;actorId = id; tab = 'blocking'; renderObjects(); renderInspector(); cameraKey?engine.selectCameraKey(cameraKey):engine.select(actorId); }, (id, pos, rot) => {
-  if(id.startsWith('@camera:')){const [key,part]=id.slice(8).split('.');mutate(()=>{current().camera[key][part]=pos.map(n=>Math.round(n*1000)/1000);if(current().camera.movement==='orbit'&&current().camera.orbitDegrees!==undefined)setOrbitSweep(current().camera,current().camera.orbitDegrees);if(current().camera.movement==='static'&&part==='position')current().camera.movement='dolly';},false);return;}
-  mutate((p) => { const a = p.actors.find(a => a.id === id); if (!a) return; if (engine.transform.getMode() === 'rotate') { const s=current(); let b=s.blocking.find(b=>b.actorId===id); if(!b){const pos=actorPose(p,p.shots.indexOf(s),0,a).position;b={actorId:id,start:[...pos],end:[...pos],action:'hold'};s.blocking.push(b);}const suffix=time-shotOffset(p,s.id)>s.duration/2?'End':'Start'; b['pitch'+suffix]=clamp(rot[0],-360,360);b['rotation'+suffix]=clamp(rot[1],-360,360);b['roll'+suffix]=clamp(rot[2],-360,360); } else {
-    const s = current(), i = p.shots.indexOf(s); let b = s.blocking.find(b => b.actorId === id);
-    if (!b) { const start = actorPose(p, i, 0, a).position; b = { actorId: id, start, end: [...start], action: 'hold' }; s.blocking.push(b); }
-    const atEnd = (time - shotOffset(p, s.id)) > s.duration / 2; b[atEnd ? 'end' : 'start'] = pos.map(n => Math.round(n * 100) / 100);
+  if(id.startsWith('@camera:')){
+    const path=id.slice(8);
+    mutate(()=>{const camera=current().camera;setPath(camera,path,pos.map(n=>Math.round(n*1000)/1000));
+      if(camera.movement==='static'&&path.endsWith('.position'))camera.movement='dolly';
+      if(camera.movement==='orbit' && camera.orbitDegrees!==undefined && !path.startsWith('keys.')) alignOrbitEnd(camera);
+    },false);
+    return;
+  }
+  mutate((p) => { const a = p.actors.find(a => a.id === id); if (!a) return; if (engine.transform.getMode() === 'rotate') { const s=current(); const b=blockingTrack(p,s,a,true); const suffix=(time-shotOffset(p,s.id)+(s.takeStartFrame || 0)/p.fps)>performanceFor(p,s).duration/2?'End':'Start'; b['pitch'+suffix]=clamp(rot[0],-360,360);b['rotation'+suffix]=clamp(rot[1],-360,360);b['roll'+suffix]=clamp(rot[2],-360,360); } else {
+    const s = current(), b = blockingTrack(p,s,a,true);
+    const atEnd = (time - shotOffset(p, s.id)+(s.takeStartFrame || 0)/p.fps) > performanceFor(p,s).duration / 2; b[atEnd ? 'end' : 'start'] = pos.map(n => Math.round(n * 100) / 100);
   } }, false);
 }, (m) => toast(m, true), (id,x,y)=>showContextMenu(id,x,y), id=>selectCameraKey(id)); } catch (e) { $('#stage-view').innerHTML = `<div class="webgl-error">WebGL tidak tersedia. Aktifkan akselerasi grafis di browser.<br>${esc(e.message)}</div>`; }
 
-function saveSoon() { $('#save-state').textContent = 'MENYIMPAN'; clearTimeout(saveTimer); saveTimer = setTimeout(async () => { try { await saveProject(clone(project)); $('#save-state').textContent = 'TERSIMPAN'; } catch { $('#save-state').textContent = 'BELUM TERSIMPAN'; toast('Autosave gagal. Gunakan Simpan JSON untuk menyimpan proyek.', true); } }, 400); }
+function saveSoon() { $('#save-state').textContent = 'MENYIMPAN'; clearTimeout(saveTimer); saveTimer = setTimeout(async () => { try { await saveProject(clone(project),workspaceKey); $('#save-state').textContent = 'TERSIMPAN'; } catch { $('#save-state').textContent = 'BELUM TERSIMPAN'; toast('Autosave gagal. Gunakan Simpan JSON untuk menyimpan proyek.', true); } }, 400); }
 function mutate(fn, rebuild = true) {
+  if(recording) return false;
   const before = clone(project), localBefore = time - shotOffset(project, activeId);
   try { fn(project); project = validateProject(project); history.push(before); if (history.length > 35) history.shift(); future = []; time = clamp(time, 0, totalDuration(project)); if (!project.shots.some(s => s.id === activeId)) activeId = project.shots[0].id; if (actorId!==null&&!project.actors.some(a => a.id === actorId)) actorId = project.actors[0]?.id; time = shotOffset(project, activeId) + clamp(localBefore, 0, current().duration - 1 / project.fps); refresh(rebuild); saveSoon(); return true; }
   catch (e) { project = before; toast(e.message, true); refresh(rebuild); return false; }
@@ -76,12 +92,19 @@ function renderTimeline() {
 }
 const field = (label, path, value, { type = 'number', min, max, step = 0.1, unit = '', scope = 'shot' } = {}) => `<label class="field"><span>${label}</span><div class="input-unit"><input data-field="${path}" data-scope="${scope}" type="${type}" value="${esc(value)}" ${min !== undefined ? `min="${min}"` : ''} ${max !== undefined ? `max="${max}"` : ''} ${type === 'number' ? `step="${step}"` : ''}/>${unit ? `<b>${unit}</b>` : ''}</div></label>`;
 const textArea = (label, path, value, scope = 'shot', rows = 3) => `<label class="field"><span>${label}</span><textarea rows="${rows}" data-field="${path}" data-scope="${scope}">${esc(value)}</textarea></label>`;
-const select = (label, path, value, options, scope = 'shot') => `<label class="field"><span>${label}</span><select data-field="${path}" data-scope="${scope}">${options.map(o => { const [v, l] = Array.isArray(o) ? o : [o, o]; return `<option value="${v}" ${v === value ? 'selected' : ''}>${l}</option>`; }).join('')}</select></label>`;
+const select = (label, path, value, options, scope = 'shot') => `<label class="field"><span>${label}</span><select data-field="${path}" data-scope="${scope}">${options.map(o => { const [v, l] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(v)}" ${String(v) === String(value) ? 'selected' : ''}>${esc(l)}</option>`; }).join('')}</select></label>`;
 const vectorFields = (label, path, value, scope = 'shot') => `<div class="vector-field"><span>${label}</span><div>${value.map((v, i) => `<label><b>${['X', 'Y', 'Z'][i]}</b><input aria-label="${label} ${['X','Y','Z'][i]}" data-field="${path}.${i}" data-scope="${scope}" type="number" step="0.1" value="${Number(v.toFixed(3))}"/></label>`).join('')}</div></div>`;
 
 function deleteSelectedActor(){if(actor()&&!cameraKey)mutate(p=>{removeActor(p,actorId);actorId=null;});}
-function selectCameraKey(id){cameraKey=id;tab='camera';setPlaying(false);const [key]=id.split('.');seek(shotOffset(project,activeId)+(key==='end'?current().duration-1/project.fps:0));engine?.selectCameraKey(id);renderInspector();toast(`${key==='start'?'IN':'OUT'} key dipilih. Drag gizmo atau edit koordinat.`);}
-function directorInspector(s){return `<div class="inspector-section"><h3>Director · shot aktif</h3><p class="field-note">Revisi teknis lewat perintah lokal yang terukur. Kamera dan target tetap bisa diedit manual pada tab Kamera.</p><textarea id="director-prompt" rows="8" placeholder="dolly 50mm 6 detik; cam in (4,2,7); cam out (2,1.5,4); target in (0,1,0); target out (0,1,0)">${esc(s.directorPrompt||'')}</textarea><button class="button primary full" data-action="apply-director">${icon('check')} Terapkan revisi shot</button><p class="field-note">Perintah: static/dolly/truck/crane/orbit; 35mm; lens in 35 / lens out 50; fokus 4; f/2.8; linear/smooth; cam in/out (x,y,z); target in/out (x,y,z). Perintah kamera menjaga aksi lama. Gunakan aksi: teks baru untuk mengganti aksi, atau edit field Aksi. Orbit ±360 derajat untuk satu putaran. Tidak memakai API AI.</p>${textArea('Aksi / visual','action',s.action)}${textArea('Fungsi shot','purpose',s.purpose)}<div class="key-controls"><button class="button subtle" data-action="key-in">Edit IN key</button><button class="button subtle" data-action="key-out">Edit OUT key</button></div></div>`;}
+function selectCameraKey(id){
+  const shot=current(),[key,index]=id.split('.');
+  const at=key==='keys'?shot.camera.keys[index].at:key==='end'?1:0;
+  cameraKey=id;tab='camera';setPlaying(false);
+  seek(shotOffset(project,activeId)+Math.min(at*shot.duration,shot.duration-1/project.fps));
+  engine?.syncKeyMarkers(shot);engine?.selectCameraKey(id);renderInspector();
+  toast('Key dipilih. Geser panah di stage atau edit koordinat.');
+}
+function directorInspector(s){return `<div class="inspector-section"><h3>Director · shot aktif</h3><p class="field-note">Revisi teknis lewat perintah lokal yang terukur. Kamera dan target tetap bisa diedit manual pada tab Kamera.</p><textarea id="director-prompt" rows="8" placeholder="dolly 50mm 6 detik; cam in (4,2,7); cam out (2,1.5,4); target in (0,1,0); target out (0,1,0)">${esc(s.directorPrompt||'')}</textarea><button class="button primary full" data-action="apply-director">${icon('check')} Terapkan revisi shot</button><p class="field-note">Perintah: static/dolly/truck/crane/orbit; 35mm; lens in 35 / lens out 50; fokus 4; f/2.8; linear/smooth; cam in/out (x,y,z); target in/out (x,y,z). Perintah kamera menjaga aksi lama. Gunakan aksi: teks baru untuk mengganti aksi, atau edit field Aksi. Orbit ±360 derajat untuk satu putaran. Contoh key tengah pada frame 24: <code>key 24: cam (3,2,4) target (0,1,0) lens 45</code>.</p>${textArea('Aksi / visual','action',s.action)}${textArea('Fungsi shot','purpose',s.purpose)}<div class="key-controls"><button class="button subtle" data-action="key-in">Edit IN key</button><button class="button subtle" data-action="key-out">Edit OUT key</button></div></div>`;}
 function storyModal(){storySourceName='Pasted story';openModal('Cerita → Vid-Previz',`<p class="modal-intro">Mulai dari cerita atau screenplay. Dokumen dibaca lokal, lalu dibagi menjadi draf shot yang dapat direvisi Director.</p><div class="field-row"><label class="field"><span>Judul proyek</span><input id="story-name" value="Cerita baru"/></label><label class="field"><span>Model karakter</span><select id="story-model"><option value="pill-person">Pill kepala bola</option><option value="pill">Pill</option></select></label></div><button class="button subtle" data-action="story-document">${icon('folder-open')} Import TXT / MD / DOCX / PDF</button><span id="story-source-name" class="field-note">Tempel cerita atau pilih dokumen.</span><label class="field"><span>Nama karakter (pisahkan koma; bila kosong baca NAMA: dari screenplay)</span><input id="story-cast" placeholder="Akram, GIKA, Ardi"/></label><label class="field"><span>Cerita asli · pisahkan paragraf untuk tiap beat/shot</span><textarea id="story-text" rows="10" placeholder="INT. RUANG TAMU — SORE&#10;Akram memandang kotak cahaya. Wide 35mm 5 detik.&#10;&#10;GIKA mendekat. Dolly 50mm 4 detik."></textarea></label><div class="field-row"><label class="field"><span>Durasi default per beat (detik)</span><input id="story-duration" type="number" min="1" max="60" value="5"/></label><label class="field"><span>FPS</span><select id="story-fps"><option>30</option><option>25</option><option>24</option></select></label></div><button class="button primary full" data-action="story-generate">${icon('clapperboard')} Buat draf stage & shot</button><p class="field-note">Planner offline berbasis paragraf dan kata kunci, belum memahami seluruh makna cerita. Tidak membuat visual realistis atau rig interaksi otomatis. PDF scan perlu OCR terpisah. Draf akan ditinjau sebelum mengganti proyek aktif.</p>`,'wide-modal');}
 function generateStoryDraft(){try{const draft=storyToProject($('#story-text').value,{name:$('#story-name').value,cast:$('#story-cast').value,fps:Number($('#story-fps').value),duration:Number($('#story-duration').value),model:$('#story-model').value,sourceName:storySourceName});windowPendingStory=draft;openModal('Tinjau draf previz',`<p class="modal-intro">${esc(draft.name)} · ${draft.shots.length} shot · ${totalDuration(draft).toFixed(2)} detik · ${draft.fps}fps</p><div class="story-review-cast">${draft.actors.map(a=>`<span><b>${esc(a.characterTag)}</b> ${esc(a.name)}</span>`).join('')}</div><div class="story-review-shots">${draft.shots.map((s,i)=>`<article><b>${String(i+1).padStart(2,'0')} · ${esc(s.name)}</b><small>${s.duration}s / ${s.camera.start.lens}mm / ${s.camera.movement}</small><p>${esc(s.action)}</p></article>`).join('')}</div><p class="field-note">Semua geometri dan pilihan kamera adalah usulan. Proyek aktif dapat dikembalikan dengan Undo; simpan JSON untuk backup.</p><button class="button primary full" data-action="story-apply">Buka draf ini di studio</button>`,'wide-modal');}catch(e){toast(e.message,true);}}
 let windowPendingStory;
@@ -91,7 +114,7 @@ document.addEventListener('contextmenu',e=>{const item=e.target.closest('[data-s
 $('#story-file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const text=await readStoryFile(file);if(!$('#story-text'))return;$('#story-text').value=text;storySourceName=file.name;$('#story-source-name').textContent=file.name;toast('Teks dokumen terbaca; tinjau sebelum membuat draf.');}catch(err){toast(err.message,true);}e.target.value='';});
 
 function stateInspector(a,s){const st=actorState(project,s,a);return `<div class="inspector-section"><h3>State properti · shot ini</h3>${select('Visibilitas shot','visible',String(st.visible),[['true','Tampil'],['false','Sembunyikan']],'state')}<div class="field-row">${field('Warna shot','color',st.color,{type:'color',scope:'state'})}${field('Emisi permukaan','emissive',st.emissive,{min:0,max:8,scope:'state'})}</div>${field('Catatan state','note',st.note,{type:'text',scope:'state'})}${a.type==='panel'?`${select('Panel tanpa shading','unlit',String(st.unlit),[['true','Cue / unlit'],['false','Terkena cahaya']],'state')}<button class="button subtle full" data-action="import-plate">${icon('image')} Gambar untuk shot ini</button><div class="field-row">${field('Crop X','imageRegion.0',st.imageRegion[0],{min:0,max:1,step:.01,scope:'state'})}${field('Crop Y','imageRegion.1',st.imageRegion[1],{min:0,max:1,step:.01,scope:'state'})}</div><div class="field-row">${field('Crop width','imageRegion.2',st.imageRegion[2],{min:.001,max:1,step:.01,scope:'state'})}${field('Crop height','imageRegion.3',st.imageRegion[3],{min:.001,max:1,step:.01,scope:'state'})}</div><p class="field-note">Crop 0–1 dari kiri atas; file sumber tetap utuh.</p><p class="field-note">PNG/JPEG/WebP lokal, maksimal 4 MB. Panel berputar dari tepi bawah: gunakan pitch untuk cue flap. Emisi adalah tampilan, bukan sumber cahaya.</p>${st.image?'<button class="text-button" data-action="remove-plate">Hapus plate</button>':''}`:''}<button class="text-button" data-action="clear-state">Kembali ke state dasar objek</button><p class="field-note">Override hanya berlaku pada shot ini. Shot berikut kembali ke dasar bila tidak diberi override.</p></div>`;}
-function lightInspector(s){const l=shotLight(project,s);return `<div class="inspector-section"><h3>Cahaya · shot aktif</h3>${select('Mode cahaya shot','mode',s.light?.mode||'inherit',[['inherit','Ikuti proyek'],['scene','Override scene'],['black','True black'],['local','Hanya lampu lokal']],'shotLight')}<p class="field-note">True black menghasilkan frame kamera/ekspor hitam murni. Mode lokal mematikan key, ambient, grid dan emisi bawaan karakter; tambahkan sumber lokal.</p>${s.light?`<div class="field-row">${field('Key shot','intensity',l.intensity,{min:0,max:12,scope:'shotLight'})}${field('Ambient shot','ambient',l.ambient??1.7,{min:0,max:6,scope:'shotLight'})}</div>${field('Background shot','background',l.background,{type:'color',scope:'shotLight'})}<button class="text-button" data-action="inherit-light">Hapus override cahaya</button>`:''}<button class="button subtle full" data-action="add-practical">${icon('sun')} Lampu mengikuti objek terpilih</button>${l.practicals.map((p,i)=>`<div class="practical-form"><h3>Lampu ${i+1} · ${esc(project.actors.find(a=>a.id===p.actorId)?.name)}</h3><div class="field-row">${field('Intensitas',`practicals.${i}.intensity`,p.intensity,{min:0,max:100,scope:'shotLight'})}${field('Jangkauan m',`practicals.${i}.distance`,p.distance,{min:.1,max:30,scope:'shotLight'})}</div>${field('Warna lampu',`practicals.${i}.color`,p.color,{type:'color',scope:'shotLight'})}${vectorFields('Offset dunia (m)',`practicals.${i}.offset`,p.offset,'shotLight')}<button class="text-button danger" data-action="remove-practical" data-index="${i}">Hapus lampu</button></div>`).join('')}</div>`;}
+function lightInspector(s){const l=shotLight(project,s);return `<div class="inspector-section"><h3>Cahaya · shot aktif</h3>${select('Mode cahaya shot','mode',s.light?.mode||'inherit',[['inherit','Ikuti proyek'],['scene','Override scene'],['black','True black'],['local','Hanya lampu lokal']],'shotLight')}<p class="field-note">True black menghasilkan frame kamera/ekspor hitam murni. Mode lokal mematikan key, ambient, grid dan emisi bawaan karakter; tambahkan sumber lokal.</p>${s.light?`<div class="field-row">${l.rig || l.mode!=='scene'?'':field('Key shot','intensity',l.intensity,{min:0,max:12,scope:'shotLight'})}${field('Ambient shot','ambient',l.ambient??1.7,{min:0,max:6,scope:'shotLight'})}</div>${field('Background shot','background',l.background,{type:'color',scope:'shotLight'})}<button class="text-button" data-action="inherit-light">Hapus override cahaya</button>`:''}<button class="button subtle full" data-action="add-practical">${icon('sun')} Lampu mengikuti objek terpilih</button>${l.practicals.map((p,i)=>`<div class="practical-form"><h3>Lampu ${i+1} · ${esc(project.actors.find(a=>a.id===p.actorId)?.name)}</h3><div class="field-row">${field('Intensitas',`practicals.${i}.intensity`,p.intensity,{min:0,max:100,scope:'shotLight'})}${field('Jangkauan m',`practicals.${i}.distance`,p.distance,{min:.1,max:30,scope:'shotLight'})}</div>${field('Warna lampu',`practicals.${i}.color`,p.color,{type:'color',scope:'shotLight'})}${vectorFields('Offset dunia (m)',`practicals.${i}.offset`,p.offset,'shotLight')}<button class="text-button danger" data-action="remove-practical" data-index="${i}">Hapus lampu</button></div>`).join('')}</div>`;}
 function renderInspector() {
   const s = current(), idx = project.shots.indexOf(s);
   $('#shot-identity').innerHTML = `<div class="shot-kicker"><span>SHOT ${String(idx + 1).padStart(2, '0')}</span><span class="shot-duration">${s.duration}s</span></div><input class="shot-name" aria-label="Nama shot" data-field="name" data-scope="shot" value="${esc(s.name)}"/><div class="shot-actions">${button('copy','duplicate-shot','Duplikat shot')}${button('arrow-left','move-shot-left','Pindah shot ke kiri')}${button('arrow-right','move-shot-right','Pindah shot ke kanan')}${button('trash-2','delete-shot','Hapus shot')}</div>`;
@@ -103,7 +126,7 @@ function renderInspector() {
   } else if (tab === 'blocking') {
     const a = actor();
     if (a) {
-      const b = s.blocking.find(b => b.actorId === a.id), pose = actorPose(project, idx, 0, a).position;
+      const b = blockingTrack(project,s,a), pose = actorPose(project, idx, 0, a).position;
       html = `<div class="inspector-section"><h3>Objek terpilih ${a.characterTag?`<b class="identity-tag">${a.characterTag}</b>`:''}<span class="color-dot" style="background:${a.color}"></span></h3>${field('Nama objek', 'name', a.name, { type: 'text', scope: 'actor' })}<div class="field-row">${field('Warna', 'color', a.color, { type: 'color', scope: 'actor' })}${field('Skala', 'scale', a.scale, { min: 0.1, max: 20, scope: 'actor' })}</div>${field('Arah hadap', 'rotation', a.rotation, { min: -360, max: 360, unit: '°', scope: 'actor' })}${vectorFields('Posisi dasar', 'position', a.position, 'actor')}${vectorFields('Skala per sumbu XYZ', 'dimensions', a.dimensions || [1,1,1], 'actor')}<div class="field-row">${field('Pitch dasar X', 'pitch', a.pitch||0, {min:-360,max:360,scope:'actor',unit:'°'})}${field('Roll dasar Z', 'roll', a.roll||0, {min:-360,max:360,scope:'actor',unit:'°'})}</div><p class="field-note">Tinggi Pill kepala bola 1,84 m pada skala 1; Pill sederhana 1,75 m. Posisi dalam meter; Y adalah tinggi.</p><button class="button subtle full" data-action="duplicate-actor">${icon('copy')} Duplikat objek</button><button class="text-button danger" data-action="delete-actor">${icon('trash-2')} Hapus objek</button></div><div class="inspector-section"><h3>Blocking · shot aktif</h3><p class="field-note">Posisi akhir diteruskan ke shot berikutnya. Track shot aktif menimpa posisi dasar.</p>${select('Aksi', 'action', b?.action || 'hold', [['hold','Diam'],['walk','Jalan'],['run','Lari'],['jump','Lompat'],['float','Melayang']], 'track')}<div class="field-row">${select('Postur awal', 'poseStart', b?.poseStart || actorPose(project, idx, 0, a).poseStart, ['stand','sit','kneel','crouch','lie'], 'track')}${select('Postur akhir', 'poseEnd', b?.poseEnd || actorPose(project, idx, 0, a).poseEnd, ['stand','sit','kneel','crouch','lie'], 'track')}</div><div class="field-row">${field('Hadap awal', 'rotationStart', b?.rotationStart ?? actorPose(project, idx, 0, a).rotation, { min: -360, max: 360, unit: '°', scope: 'track' })}${field('Hadap akhir', 'rotationEnd', b?.rotationEnd ?? actorPose(project, idx, 0, a).rotation, { min: -360, max: 360, unit: '°', scope: 'track' })}</div><p class="field-note">Cue postur pill mengubah tinggi untuk eyeline; tidak memakai anggota tubuh mannequin.</p><div class="field-row">${field('Pitch awal X', 'pitchStart', b?.pitchStart ?? actorPose(project,idx,0,a).pitch, {min:-360,max:360,scope:'track',unit:'°'})}${field('Pitch akhir X', 'pitchEnd', b?.pitchEnd ?? actorPose(project,idx,0,a).pitch, {min:-360,max:360,scope:'track',unit:'°'})}</div><div class="field-row">${field('Roll awal Z', 'rollStart', b?.rollStart ?? actorPose(project,idx,0,a).roll, {min:-360,max:360,scope:'track',unit:'°'})}${field('Roll akhir Z', 'rollEnd', b?.rollEnd ?? actorPose(project,idx,0,a).roll, {min:-360,max:360,scope:'track',unit:'°'})}</div>${vectorFields('Awal blocking', 'start', b?.start || pose, 'track')}${vectorFields('Akhir blocking', 'end', b?.end || pose, 'track')}${b ? '<button class="text-button" data-action="clear-track">Hapus track shot ini</button>' : ''}</div>${stateInspector(a,s)}`;
     } else html = '<div class="inspector-section"><p class="field-note">Tambahkan atau pilih objek di Scene Explorer.</p></div>';
   } else if (tab === 'state') {
@@ -113,6 +136,10 @@ function renderInspector() {
   } else {
     html = `<div class="inspector-section"><div class="prompt-heading">${icon('sparkles')} PROMPT LAB <span>OFFLINE</span></div><p class="field-note">Ubah ide menjadi rancangan shot. Asisten lokal membaca kata kunci gerakan, mm, dan detik; tidak memakai model AI.</p><textarea id="brief-input" rows="4" placeholder="Contoh: dolly mendekat, close-up 50mm selama 6 detik…">${esc(s.action)}</textarea><button class="button primary full" data-action="apply-brief">${icon('wand-sparkles')} Terapkan ke shot</button></div><div class="inspector-section"><h3>Prompt dari stage</h3><p class="field-note">Selalu dibangun dari geometri, lensa, aksi dan timing proyek saat ini.</p><pre class="prompt-output" id="prompt-output">${esc(buildPrompt(project, s))}</pre><div class="field-row"><button class="button subtle" data-action="copy-prompt">${icon('copy')} Salin</button><button class="button subtle" data-action="download-prompts">${icon('download')} .txt</button></div>${textArea('Suara / dialog', 'sound', s.sound)}${textArea('Catatan produksi', 'notes', s.notes)}</div>`;
   }
+  const inputs={field,select,vectorFields,esc};
+  if (tab==='camera' || (tab==='blocking' && actor())) html+=motionInspector(project,s,tab==='camera'?null:actor(),inputs);
+  if (tab==='director') html+=directionChecks(project,s,inputs);
+  if (tab==='light') html+=lightRigInspector(shotLight(project,s),inputs);
   $('#inspector-content').innerHTML = html;if(!pendingFeatures)$('#inspector-content').querySelectorAll('.key-controls').forEach(e=>e.hidden=true); iconsRefresh();
 }
 function updateReadouts() {
@@ -133,7 +160,84 @@ function download(data, filename, type) { const blob = data instanceof Blob ? da
 const slug = () => project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 70) || 'warkai-previz';
 function openModal(title, content, cls = '') { $('#modal-title').textContent = title; $('#modal-content').innerHTML = content; $('#modal').className = cls; $('#modal').showModal(); iconsRefresh(); }
 function closeModal() { $('#modal').close(); }
-function exportMenu() { openModal('Export your vision.', `<p class="modal-intro">Dari stage ke produksi. Pilih hasil yang ingin dibawa ke workflow video AI.</p><div class="export-grid">${[['video','film','Video previz','MP4 frame-akurat via FFmpeg. Semua RAW sesuai timeline; fallback capture jika FFmpeg tidak tersedia.'],['frame','image','Camera frame','Frame kamera bersih dalam PNG.'],['contact','gallery-horizontal-end','Contact sheet','Start dan end frame setiap shot dalam satu PNG.'],['json','braces','Project JSON','Proyek lengkap, termasuk model GLB yang diimpor.'],['yaml','file-code-2','Blueprint YAML','Score yang dapat diedit dan diimpor kembali.'],['manifest','list-video','Shot manifest','Pemetaan RAW / job / EDIT sequence dalam JSON dan CSV.'],['prompts','sparkles','Generation prompts','Prompt mandiri untuk setiap shot, berdasarkan stage saat ini.']].map(([id,ico,title,desc]) => `<button data-export="${id}" class="export-option">${icon(ico)}<strong>${title}</strong><span>${desc}</span>${icon('arrow-up-right')}</button>`).join('')}</div><p class="field-note">Render blockout untuk acuan ruang dan timing. Pemodelan karakter realistis, simulasi DoF, audio mixing, dan generasi video AI belum termasuk.</p>`,'wide-modal'); }
+async function scanComposition(shot) {
+  if (!engine) throw new Error('WebGL diperlukan untuk memeriksa frame.');
+  setPlaying(false); recording=true; exportCancelled=false;
+  const start=Math.round(shotOffset(project,shot.id)*project.fps), frames=Math.round(shot.duration*project.fps);
+  const findings=new Map();
+  $('#export-overlay').hidden=false;
+  try {
+    await engine.waitForAssets();
+    for (let i=0;i<frames;i++) {
+      if (exportCancelled) return;
+      const t=(start+i)/project.fps;
+      engine.update(t,{render:false});
+      for (const hit of inspectComposition(engine,t).findings) {
+        const key=JSON.stringify([hit.code,...hit.actorIds]);
+        if (!findings.has(key)) findings.set(key,hit);
+      }
+      if (i%12===0) {
+        $('#render-status').textContent='Memeriksa gambar '+(i+1)+' / '+frames;
+        $('#render-progress').value=(i+1)/frames;
+        await new Promise(requestAnimationFrame);
+      }
+    }
+    const rows=[...findings.values()].map(hit=>`<p><button class="button subtle" data-action="seek-finding" data-frame="${hit.frame}">Frame ${hit.localFrame}</button> ${esc(hit.message)}</p>`);
+    openModal('QC gambar · '+shot.name,`<p>${frames} frame diperiksa. Tiap temuan menunjukkan kemunculan pertama.</p>${rows.join('') || '<p>Semua frame lolos pemeriksaan geometri yang dipilih.</p>'}<p class="field-note">Periksa gambar dan maksud adegan untuk keputusan kreatif.</p>`);
+  } finally {
+    recording=false; $('#export-overlay').hidden=true; engine.update(time,{guides,grid});
+  }
+}
+
+function standaloneClips(p) {
+  let startFrame=0;
+  return p.shots.map((shot,index)=>{
+    const endFrameExclusive=startFrame+Math.round(shot.duration*p.fps);
+    const clip={id:'CL'+String(index+1).padStart(3,'0'),order:index+1,startFrame,endFrameExclusive,shotIds:[shot.id]};
+    startFrame=endFrameExclusive; return clip;
+  });
+}
+async function listBatches() {
+  const {batches}=await renderRequest('/api/previz/batches');
+  openModal('Hasil render lokal',batches.map(b=>`<p><button class="button subtle" data-action="view-batch" data-id="${esc(b.id)}">${esc(b.projectName)} · ${esc(b.mode)}</button> ${esc(new Date(b.createdAt).toLocaleString('id-ID'))}</p>`).join('') || '<p>Hasil muncul setelah ekspor klip pertama.</p>');
+}
+function showBatch(batch) {
+  const links=batch.clips.map(c=>`<p><strong>${esc(c.clipId)}</strong> · ${c.frames} frame ${c.measured?' · '+c.measured.durationSeconds+' detik':''} · ${c.url?`<a href="${esc(c.url)}" download>Unduh MP4</a>`:esc(c.status)}</p>`);
+  openModal('Hasil '+(batch.mode==='clean'?'Clean Previz':'Director Breakdown'),links.join('')+
+    `<p><a href="${esc(batch.manifestUrl)}" download="manifest.json">Unduh manifest</a> · <a href="${esc(batch.snapshotUrl)}" download="snapshot.json">Simpan revisi proyek</a></p>`+
+    (batch.status==='ready'?'':`<button class="button primary" data-action="resume-batch" data-id="${esc(batch.id)}">Render dari snapshot ini</button>`));
+}
+async function runClipExport(mode,batchId) {
+  if (!engine) throw new Error('WebGL diperlukan untuk merender klip.');
+  setPlaying(false); recording=true; exportCancelled=false; batchAbort=new AbortController();
+  $('#render-progress').value=0; $('#render-status').textContent='Menyiapkan snapshot dan aset…'; $('#export-overlay').hidden=false;
+  let result, breakdownCanvas;
+  const options={
+    signal:batchAbort.signal,
+    async prepareProject(snapshot){engine.rebuild(snapshot);await engine.waitForAssets();},
+    captureFrame(t,context){
+      engine.update(t,{render:false,guides:false,grid:false});
+      if (context.mode==='clean') return engine.captureFrame(context.width);
+      breakdownCanvas=captureDirectorBreakdown(engine,t,breakdownCanvas); return breakdownCanvas;
+    },
+    onProgress({clipId,order,received,frames,clipCount}){
+      $('#render-status').textContent=clipId+' · '+received+' / '+frames+' frame';
+      $('#render-progress').value=(order-1+received/frames)/clipCount;
+    }
+  };
+  try {
+    if (batchId) result=await resumeClipBatch({batchId,...options});
+    else result=await exportClipBatch({project,mode,clips:project.aragiPlan?clipsForAragiExport(project):standaloneClips(project),
+      ...(mode==='clean'?exportDimensions():{width:1280,height:720}),...options});
+  } catch(err) {
+    if (err.name!=='AbortError') throw err;
+    toast('Render dibatalkan. Klip selesai tersedia di Hasil render lokal.');
+  } finally {
+    recording=false; batchAbort=null; $('#export-overlay').hidden=true; refresh();
+  }
+  if(result) showBatch(result);
+}
+function exportMenu() { openModal('Export your vision.', `<p class="modal-intro">Dari stage ke produksi. Pilih hasil yang ingin dibawa ke workflow video AI.</p><div class="export-grid">${[['clean','film','Clean Previz per klip','MP4 sesuai batas klip Aragi. Proyek mandiri memakai satu klip per shot.'],['breakdown','layers-3','Director Breakdown','MP4 denah pemain dan kamera, gambar, serta diagram cahaya per klip.'],['batches','folder-open','Hasil render lokal','Unduh klip dan manifest, atau lanjutkan render yang tertunda.'],['video','film','Video previz','MP4 frame-akurat via FFmpeg. Semua RAW sesuai timeline; fallback capture jika FFmpeg tidak tersedia.'],['frame','image','Camera frame','Frame kamera bersih dalam PNG.'],['contact','gallery-horizontal-end','Contact sheet','Start dan end frame setiap shot dalam satu PNG.'],['json','braces','Project JSON','Proyek lengkap, termasuk model GLB yang diimpor.'],['yaml','file-code-2','Blueprint YAML','Score yang dapat diedit dan diimpor kembali.'],['manifest','list-video','Shot manifest','Pemetaan RAW / job / EDIT sequence dalam JSON dan CSV.'],['prompts','sparkles','Generation prompts','Prompt mandiri untuk setiap shot, berdasarkan stage saat ini.']].map(([id,ico,title,desc]) => `<button data-export="${id}" class="export-option">${icon(ico)}<strong>${title}</strong><span>${desc}</span>${icon('arrow-up-right')}</button>`).join('')}</div><p class="field-note">Render blockout untuk acuan ruang dan timing. Pemodelan karakter realistis, simulasi DoF, audio mixing, dan generasi video AI belum termasuk.</p>`,'wide-modal'); }
 function blueprintModal() { openModal('Production blueprint', `<p class="modal-intro">Satu score untuk stage, kamera, dan timing. Edit YAML lalu terapkan; input divalidasi sebelum mengganti proyek.</p><div class="blueprint-tools"><button class="button subtle" data-action="copy-score">${icon('copy')} Salin YAML</button><button class="button primary" data-action="apply-score">${icon('check')} Terapkan score</button></div><textarea spellcheck="false" id="score-editor" aria-label="YAML blueprint">${esc(stringifyYAML(project))}</textarea><h3>Timing shot aktif</h3><div class="field-row three">${field('Sequence ID', 'edit.sequence_id', current().edit.sequence_id, { type: 'text' })}${field('Job ID', 'edit.job_id', current().edit.job_id, { type: 'text' })}${field('Shot ID', 'edit.shot_id', current().edit.shot_id, { type: 'text' })}</div><div class="field-row three">${field('RAW trim in', 'edit.raw_in', current().edit.raw_in, { min: 0, unit: 's' })}${field('RAW trim out', 'edit.raw_out', current().edit.raw_out, { min: 0, unit: 's' })}${field('EDIT SQ in', 'edit.sequence_in', current().edit.sequence_in, { min: 0, unit: 's' })}</div><p class="field-note">RAW adalah durasi sumber shot. Rentang RAW trim dipetakan ke EDIT SQ in. Video mengekspor semua RAW berurutan; manifest menjelaskan trim untuk penyuntingan. Perubahan form timing tersimpan langsung; buka Blueprint lagi untuk memperbarui teks YAML.</p>`,'wide-modal'); }
 function projectModal() { openModal('Pengaturan proyek', `${field('Nama proyek', 'name', project.name, { type: 'text', scope: 'project' })}${textArea('Konsep', 'description', project.description, 'project')}${textArea('Geometri lokasi', 'setting', project.setting, 'project', 4)}<div class="field-row">${select('Rasio output', 'aspect', project.aspect, ['16:9','9:16','4:3','1:1','21:9','48:9'], 'project')}${select('Frame rate', 'fps', project.fps, [[24,'24 fps'],[25,'25 fps'],[30,'30 fps']], 'project')}</div><p class="field-note">Durasi harus kelipatan 1 frame. Mengubah fps mempertahankan jumlah detik jika valid; shot pecahan frame perlu disesuaikan dahulu.</p><button class="button primary full" data-action="close-modal">Selesai</button>`); }
 function getPath(obj, path) { return path.split('.').reduce((o, k) => o?.[k], obj); }
@@ -144,13 +248,15 @@ function commitField(e) {
   const value = el.type === 'checkbox' ? el.checked : ['visible','unlit'].includes(path) ? el.value === 'true' : el.type === 'number' || path === 'fps' ? Number(el.value) : el.value;
   mutate(p => {
     let target = scope === 'project' ? p : scope === 'actor' ? actor() : current();
-    if (scope === 'track') { const s = current(), a = actor(); let track = s.blocking.find(b => b.actorId === a.id); if (!track) { const pos = actorPose(p, p.shots.indexOf(s), 0, a).position; track = { actorId: a.id, start: [...pos], end: [...pos], action: 'hold' }; s.blocking.push(track); } target = track; }
+    if (scope === 'track') target=blockingTrack(p,current(),actor(),true);
+    if (scope === 'composition') {target=current().composition ||= {}; if (!value && path==='revealId') delete target.revealFrame;}
     if(scope==='state'){const s=current();s.states||=[];let state=s.states.find(x=>x.actorId===actorId);if(!state){state={actorId};s.states.push(state);}target=state;}
     if(scope==='state'&&path.startsWith('imageRegion.')&&!target.imageRegion)target.imageRegion=[...actorState(p,current(),actor()).imageRegion];
     if(scope==='shotLight'){if(path==='mode'&&value==='inherit'){delete current().light;return;}current().light||={mode:'scene'};target=current().light;}
     if(scope==='actor'&&path.startsWith('dimensions.')&&!target.dimensions)target.dimensions=[1,1,1];
     if (path === 'duration' && scope === 'shot') { const old = target.duration; if (target.edit.raw_out === old) target.edit.raw_out = value; }
     setPath(target, path, value);if(scope==='shot'&&path==='camera.orbitDegrees')setOrbitSweep(target.camera,value);
+    if(scope==='shot' && /^camera\.(start|end)\.(position|target)\./.test(path) && target.camera.orbitDegrees!==undefined && target.camera.movement==='orbit') alignOrbitEnd(target.camera);
   }, scope === 'actor');
 }
 document.addEventListener('change', commitField);
@@ -159,7 +265,8 @@ document.addEventListener('focusout', (e) => {
   let target = el.dataset.scope === 'project' ? project : el.dataset.scope === 'actor' ? actor() : current();
   if(el.dataset.scope==='state'&&actor()) target=actorState(project,current(),actor());
   if(el.dataset.scope==='shotLight') target=current().light||{...shotLight(project,current()),mode:'inherit'};
-  if (el.dataset.scope === 'track'&&actor()) {const pose=actorPose(project,project.shots.indexOf(current()),0,actor());target=current().blocking.find(b=>b.actorId===actorId)||{start:pose.position,end:pose.position,action:'hold',poseStart:pose.poseStart,poseEnd:pose.poseEnd,rotationStart:pose.rotation,rotationEnd:pose.rotation,pitchStart:pose.pitch,pitchEnd:pose.pitch,rollStart:pose.roll,rollEnd:pose.roll};}
+  if (el.dataset.scope === 'track'&&actor()) {const pose=actorPose(project,project.shots.indexOf(current()),0,actor());target=blockingTrack(project,current(),actor())||{start:pose.position,end:pose.position,action:'hold',poseStart:pose.poseStart,poseEnd:pose.poseEnd,rotationStart:pose.rotation,rotationEnd:pose.rotation,pitchStart:pose.pitch,pitchEnd:pose.pitch,rollStart:pose.roll,rollEnd:pose.roll};}
+  if(el.dataset.scope==='composition') target=current().composition || {};
   if (!target) return;
   const value = el.type === 'checkbox' ? el.checked : ['visible','unlit'].includes(el.dataset.field) ? el.value === 'true' : el.type === 'number' || el.dataset.field === 'fps' ? Number(el.value) : el.value;
   if (getPath(target, el.dataset.field) !== value) commitField(e);
@@ -184,6 +291,25 @@ document.addEventListener('click', async (e) => {
     case 'story-generate': generateStoryDraft();break;
     case 'story-apply':if(windowPendingStory){replaceProject(windowPendingStory);windowPendingStory=null;closeModal();toast('Draf cerita dibuka; tinjau blocking dan kamera sebelum export.');}break;
     case 'apply-director': {const text=$('#director-prompt').value;if(mutate(p=>{p.shots[idx]=directShot(s,text,p.fps).shot;},false))toast('Revisi Director diterapkan. Periksa key, aksi dan timing.');break;}
+    case 'cut-camera': {
+      let id; const frame=Math.round((time-shotOffset(project,s.id))*project.fps);
+      if(mutate(p=>{id=cutCamera(p,s,frame);},false)) selectShot(id);
+      break;
+    }
+    case 'add-motion-key': {
+      const frame=Math.round((time-shotOffset(project,s.id))*project.fps);
+      if(mutate(p=>addMotionKey(p,s,frame,tab==='camera'?null:actor()),false)) toast('Key tersimpan di jalur.');
+      break;
+    }
+    case 'select-motion-key': selectCameraKey('keys.'+a.dataset.index+'.position'); break;
+    case 'remove-motion-key': cameraKey=null;mutate(p=>{const track=tab==='camera'?s.camera:blockingTrack(p,s,actor());track.keys.splice(Number(a.dataset.index),1);},false); break;
+    case 'use-key-view': if(engine)mutate(()=>Object.assign(s.camera.keys[Number(a.dataset.index)],engine.getStagePose()),false);break;
+    case 'scan-composition': try {await scanComposition(s);} catch(err){toast(err.message,true);} break;
+    case 'seek-finding': closeModal();seek(Number(a.dataset.frame)/project.fps);break;
+    case 'add-light-rig': mutate(p=>{s.light ||= {mode:'scene'};s.light.rig=defaultLightRig(shotLight(p,s));},false); break;
+    case 'remove-light-rig': mutate(()=>delete s.light.rig,false);break;
+    case 'resume-batch': closeModal();try{await runClipExport(null,a.dataset.id);}catch(err){toast(err.message,true);}break;
+    case 'view-batch': try{showBatch(await renderRequest('/api/previz/batches/'+encodeURIComponent(a.dataset.id)));}catch(err){toast(err.message,true);}break;
     case 'insert-before': case 'insert-after': {let id;mutate(p=>{id=insertShot(p,activeId,a.dataset.action==='insert-before'?'before':'after');},false);if(id)selectShot(id);break;}
     case 'orbit360':mutate(()=>setOrbitSweep(s.camera,360),false);break;
     case 'key-in':selectCameraKey('start.position');break;
@@ -202,8 +328,8 @@ document.addEventListener('click', async (e) => {
     case 'redo': if (future.length) { history.push(clone(project)); project = future.pop(); activeId = project.shots.some(s => s.id === activeId) ? activeId : project.shots[0].id; actorId = project.actors.some(a => a.id === actorId) ? actorId : project.actors[0]?.id; time = clamp(time, 0, totalDuration(project)); refresh(); saveSoon(); } break;
     case 'duplicate-actor': if (actor()) mutate(p => { const n = clone(actor()); n.id = uid('object');if(isCharacter(n)){const ident=nextCharacterIdentity(p.actors);n.name=ident.name;n.characterTag=ident.characterTag;}else n.name += ' copy'; n.position[0] += 1; p.actors.push(n); actorId = n.id; }); break;
     case 'delete-actor': deleteSelectedActor(); break;
-    case 'clear-track': mutate(() => s.blocking = s.blocking.filter(b => b.actorId !== actorId), false); break;
-    case 'capture-start': case 'capture-end': { if (!engine) break; const end = a.dataset.action === 'capture-end', pose = engine.getStagePose(); mutate(() => { s.camera[end ? 'end' : 'start'].position = pose.position; s.camera[end ? 'end' : 'start'].target = pose.target; }, false); seek(shotOffset(project, s.id) + (end ? s.duration - 1 / project.fps : 0)); toast(`${end ? 'End' : 'Start'} camera diambil dari view diorama.`); break; }
+    case 'clear-track': mutate(p => { const take=performanceFor(p,s); take.blocking=take.blocking.filter(b=>b.actorId!==actorId); }, false); break;
+    case 'capture-start': case 'capture-end': { if (!engine) break; const end = a.dataset.action === 'capture-end', pose = engine.getStagePose(); mutate(() => { s.camera[end ? 'end' : 'start'].position = pose.position; s.camera[end ? 'end' : 'start'].target = pose.target; if(s.camera.movement==='orbit' && s.camera.orbitDegrees!==undefined)alignOrbitEnd(s.camera); }, false); seek(shotOffset(project, s.id) + (end ? s.duration - 1 / project.fps : 0)); toast(`${end ? 'End' : 'Start'} camera diambil dari view diorama.`); break; }
     case 'view-iso': case 'view-top': view = a.dataset.action === 'view-top' ? 'top' : 'iso'; engine?.setView(view); $('[data-action="view-iso"]').classList.toggle('active', view === 'iso'); $('[data-action="view-top"]').classList.toggle('active', view === 'top'); break;
     case 'align-stage': engine?.setStageToCamera(); break;
     case 'translate': case 'rotate': engine?.select(actorId, a.dataset.action); $('[data-action="translate"]').classList.toggle('selected', a.dataset.action === 'translate'); $('[data-action="rotate"]').classList.toggle('selected', a.dataset.action === 'rotate'); break;
@@ -229,17 +355,17 @@ document.addEventListener('click', async (e) => {
     case 'copy-prompt': await copy(buildPrompt(project, s)); break;
     case 'download-prompts': download(projectPrompt(project), `${slug()}-prompts.txt`, 'text/plain'); break;
     case 'apply-brief': { const text = $('#brief-input').value; mutate(p => { const result = directShot(s, text,p.fps).shot; if (result.duration !== s.duration) result.edit.raw_out = result.duration; p.shots[idx] = result; }, false); toast('Kata kunci teknis diterapkan. Periksa kamera dan blocking sebelum render.'); break; }
-    case 'cancel-export': exportCancelled = true; break;
+    case 'cancel-export': exportCancelled = true; batchAbort?.abort(); break;
     case 'demos': openModal('Mulai sebuah adegan', `<p class="modal-intro">Proyek saat ini disimpan lewat Undo. Simpan JSON bila ingin menyimpan salinan permanen.</p><div class="demo-options"><button class="export-option" data-action="demo-signal">${icon('sun')}<strong>The quiet signal</strong><span>Pertemuan dua pill, suasana golden hour. 4 shot / 21 detik.</span></button><button class="export-option" data-action="demo-reference">${icon('orbit')}<strong>Pill action study</strong><span>Graybox kapsul, kursi, dan orbital. 4 shot / 15 detik / 4:3.</span></button><button class="export-option" data-action="demo-states">${icon('image')}<strong>Prop states & light</strong><span>Panel engsel, plate gambar, true black dan lampu lokal. 5 shot / 9 detik / 30 fps.</span></button></div>`); break;
     case 'demo-states': replaceProject(validateProject(clone(statesDemo))); closeModal(); break;
     case 'demo-signal': case 'demo-reference': replaceProject(createDemo(a.dataset.action === 'demo-reference' ? 'reference' : 'signal')); closeModal(); break;
-    case 'help': openModal('Dari ide ke previz.', `<ol class="help-steps"><li><strong>Bangun ruang.</strong> Tambahkan pill, pill kepala bola, atau properti. Pilih objek dan atur posisi dalam meter di Blocking.</li><li><strong>Susun shot.</strong> Pilih shot di timeline. Atur durasi RAW, lensa awal/akhir, kamera dan look-at. Orbit mengikuti busur; gerakan lain mengikuti dua posisi.</li><li><strong>Atur aksi.</strong> Tentukan posisi awal/akhir objek untuk tiap shot. Posisi akhir diteruskan ke shot berikutnya.</li><li><strong>Uji timing.</strong> Space untuk play. Geser scrubber, periksa monitor, diorama, radar dan kurva lensa/jarak. Gunakan Blueprint untuk metadata EDIT.</li><li><strong>Bawa ke generator.</strong> Export video, frame dan prompt. Unggah media ke generator pilihan secara manual; pill adalah pengganti karakter.</li></ol><div class="help-note">⌘Z Undo · ⌘⇧Z Redo · W Move · E Rotate · Space Play<br>Data tersimpan di IndexedDB browser ini. Export JSON untuk backup atau pindah browser.<br>Import GLB: maksimal 12 MB, satu file mandiri tanpa Draco; animasi pertama diputar bila ada.<br>Video referensi hanya dibaca lokal dan perlu dipilih ulang setelah reload. Export video tanpa audio. Realisme karakter dan kesamaan piksel hasil AI tidak dijamin.</div>`); break;
+    case 'help': openModal('Dari ide ke previz.', `<ol class="help-steps"><li><strong>Bangun ruang.</strong> Tambahkan pill, pill kepala bola, atau properti. Pilih objek dan atur posisi dalam meter di Blocking.</li><li><strong>Susun shot.</strong> Pilih shot di timeline. Atur durasi RAW, lensa awal/akhir, kamera dan look-at. Geser playhead dan tambahkan key untuk mengatur jalur di antara IN dan OUT.</li><li><strong>Atur aksi.</strong> Tentukan posisi awal/akhir objek untuk tiap shot. Posisi akhir diteruskan ke shot berikutnya.</li><li><strong>Uji timing.</strong> Space untuk play. Geser scrubber, periksa monitor, diorama, radar dan kurva lensa/jarak. Gunakan Blueprint untuk metadata EDIT.</li><li><strong>Bawa ke generator.</strong> Export video, frame dan prompt. Unggah media ke generator pilihan secara manual; pill adalah pengganti karakter.</li></ol><div class="help-note">⌘Z Undo · ⌘⇧Z Redo · W Move · E Rotate · Space Play<br>Data tersimpan di IndexedDB browser ini. Export JSON untuk backup atau pindah browser.<br>Import GLB: maksimal 12 MB, satu file mandiri tanpa Draco; animasi pertama diputar bila ada.<br>Video referensi hanya dibaca lokal dan perlu dipilih ulang setelah reload. Export video tanpa audio. Realisme karakter dan kesamaan piksel hasil AI tidak dijamin.</div>`); break;
   }
 });
 function addObject(type, asset) { cameraKey=null;mutate(p => { const n = { id: uid('object'), name: type === 'pill' ? `Karakter ${p.actors.filter(a => a.type === 'pill').length + 1}` : `${type[0].toUpperCase() + type.slice(1)} ${p.actors.length + 1}`, type, color: type==='panel'?'#ffffff':['#c99355','#719d9c','#a291b5','#b6a884'][p.actors.length % 4], position: [0,0,1], rotation: 0, scale: 1, visible: true }; if(isCharacter(n))Object.assign(n,nextCharacterIdentity(p.actors));if (asset) n.asset = asset; p.actors.push(n); actorId = n.id; }); tab = 'blocking'; renderInspector(); }
-function replaceProject(p) { p=validateProject(p);cameraKey=null;history.push(clone(project)); future = []; project = p; setPlaying(false); activeId = p.shots[0].id; actorId = p.actors[0]?.id; time = 0; refresh(); saveSoon(); }
+function replaceProject(p) { if(recording)return; p=validateProject(p);cameraKey=null;history.push(clone(project)); future = []; project = p; setPlaying(false); activeId = p.shots[0].id; actorId = p.actors[0]?.id; time = 0; refresh(); saveSoon(); }
 async function copy(text) { try { await navigator.clipboard.writeText(text); toast('Disalin ke clipboard.'); } catch { openModal('Salin teks', `<textarea rows="16" class="copy-fallback">${esc(text)}</textarea>`); $('.copy-fallback').select(); } }
-$('#project-file').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; try { if (f.size > 30 * 1024 * 1024) throw new Error('Proyek maksimal 30 MB.'); const text = await f.text(); replaceProject(validateProject(f.name.endsWith('.json') ? JSON.parse(text) : parseYAML(text, { maxAliasCount: 50 }))); toast(`Proyek ${f.name} dibuka.`); } catch (err) { toast(err.message, true); } e.target.value = ''; });
+$('#project-file').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; try { if (f.size > 30 * 1024 * 1024) throw new Error('Proyek maksimal 30 MB.'); const text = await f.text(); const data=f.name.toLowerCase().endsWith('.json') ? JSON.parse(text) : parseYAML(text, { maxAliasCount: 50 }); if(data?.schema===ARAGI_PLAN_SCHEMA) tab='director'; replaceProject(data?.schema===ARAGI_PLAN_SCHEMA ? projectFromAragiPlan(data,{name:f.name.slice(0,150)}) : data); toast(`Proyek ${f.name} dibuka.`); } catch (err) { toast(err.message, true); } e.target.value = ''; });
 $('#reference-file').addEventListener('change', e => { const f = e.target.files[0]; if (!f) return; if (referenceURL) URL.revokeObjectURL(referenceURL); referenceURL = URL.createObjectURL(f); $('#reference-video').src = referenceURL; $('#reference-video').hidden = false; $('#reference-empty').hidden = true; $('#reference-name').textContent = f.name; e.target.value = ''; });
 $('#reference-video').addEventListener('error', () => toast('Format video tidak dapat diputar browser ini. Gunakan MP4 H.264 atau WebM.', true));
 $('#plate-file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{if(!actor()||actor().type!=='panel')throw new Error('Pilih objek panel terlebih dahulu.');if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>4*1024*1024)throw new Error('Gunakan PNG/JPEG/WebP maksimal 4 MB.');const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);});mutate(()=>{const sh=current();sh.states||=[];let state=sh.states.find(x=>x.actorId===actorId);if(!state){state={actorId};sh.states.push(state);}state.image=data;state.imageName=file.name;state.unlit=true;state.color='#ffffff';});toast('Plate disimpan pada shot aktif dan ikut JSON/YAML.');}catch(err){toast(err.message,true);}e.target.value='';});
@@ -255,6 +381,8 @@ async function handleExport(type) {
     if (type === 'prompts') download(projectPrompt(project), `${slug()}-prompts.txt`, 'text/plain');
     if (type === 'manifest') { const rows = shotManifest(project); download(JSON.stringify({ schema: 'warkai-shot-manifest/1', project: project.name, video_mode: 'RAW shots, ordered project timeline', shots: rows }, null, 2), `${slug()}-manifest.json`, 'application/json'); const keys = Object.keys(rows[0]); const cell = v => `"${String(v).replaceAll('"','""')}"`; download([keys.join(','), ...rows.map(r => keys.map(k => cell(r[k])).join(','))].join('\n'), `${slug()}-shotlist.csv`, 'text/csv'); }
     if (type === 'frame') { if (!engine) throw new Error('WebGL diperlukan.'); await engine.waitForAssets(); engine.update(time, { guides, grid }); const c = engine.captureFrame(1600); await saveCanvas(c, `${slug()}-${current().edit.shot_id}-${timecode(time).replaceAll(':','-')}.png`); }
+    if (type==='clean' || type==='breakdown') {closeModal();await runClipExport(type);}
+    if (type==='batches') await listBatches();
     if (type === 'contact') await exportContactSheet();
     if (type === 'video') { closeModal(); await exportVideo(); }
   } catch (e) { toast(`Export gagal: ${e.message}`, true); }
@@ -325,6 +453,12 @@ async function exportBrowserVideo() {
   } finally { if (recorder.state !== 'inactive') recorder.stop(); stream.getTracks().forEach(t => t.stop()); recording = false; time = oldTime; $('#export-overlay').hidden = true; engine.resize(); seek(oldTime); }
 }
 
+if (linkedBatch) {
+  try {
+    const batch=await renderRequest('/api/previz/batches/'+encodeURIComponent(linkedBatch));
+    tab='director'; const draft=await loadProject(workspaceKey); replaceProject(draft || await renderRequest(batch.snapshotUrl)); if(!draft) showBatch(batch);
+  } catch(err){toast('Batch gagal dibuka. '+err.message,true);}
+}
 refresh(); saveSoon();
 let last = performance.now(), readoutClock = 0;
 function tick(now) {

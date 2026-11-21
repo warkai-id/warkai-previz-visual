@@ -29,6 +29,15 @@ npm run build
 
 ## Workflow
 
+### Dari hasil cerita ke klip
+
+1. Gunakan **Buka** untuk memuat proyek atau plan JSON Aragi. Menu **Dari cerita** menerima teks dan dokumen final. Tinjau pemeran, posisi, dan waktu potong di Director.
+2. Di **Kamera** atau **Blocking**, geser playhead lalu pilih **Tambah key di playhead**. Koordinat memakai meter. Di Director, **Potong kamera di playhead** membuat sudut kamera kedua pada take yang sama. Kedua kamera berbagi jalur pemain.
+3. Pilih objek foreground atau reveal jika diperlukan. **Periksa semua frame shot** menampilkan temuan geometri yang dapat diklik untuk menuju frame terkait. Director memutuskan apakah tertutupnya karakter sesuai maksud adegan.
+4. Pilih **Export → Clean Previz per klip** untuk MP4 acuan atau **Director Breakdown** untuk denah, frame dan diagram cahaya. Instal ffprobe bersama FFmpeg, atau atur `WARKAI_FFPROBE`. Hasil dan snapshot dapat dibuka dari **Hasil render lokal**. Studio menggunakan satu klip per shot untuk proyek mandiri, atau pembagian yang tercantum dalam plan Aragi.
+
+Kontrak input tersedia di [Impor plan Aragi](docs/ARAGI_PLAN.md). Endpoint, polling, pengambilan MP4 dan pemulihan dijelaskan di [Ekspor klip lokal](docs/LOCAL_CLIP_EXPORT.md).
+
 1. Buka demo atau import `examples/quiet-signal.json`. Video referensi dipilih dari komputer dan tetap lokal.
 2. Tambahkan Pill, Pill kepala bola, kubus, bola, kursi, bangku, pilar, orbital, panel atau GLB mandiri. Karakter selalu diberi nama unik dan kode stabil CHAR_001, CHAR_002, dst.
 3. Pilih objek di Scene Explorer. Atur skala, warna, posisi dasar dan arah hadap.
