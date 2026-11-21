@@ -68,3 +68,7 @@ Approval ini berlaku untuk implementasi bertahap dalam lingkup berikut. Tidak pe
 Baca checkpoint ini lebih dahulu. Approval implementasi sudah diberikan. Jangan mengulang perencanaan produk atau membangun Fondasi Terpadu R01. Mulai bagian pertama dan tuntaskan bertahap, dengan QC serta checkpoint. Proyek/media film, credentials, konfigurasi mesin dan isi cerita pengguna tidak masuk Git.
 
 Skill: senior-fullstack untuk implementasi/audit; anti-slop mode during dipilih pengguna dalam chat ini, dengan panduan UI/human/mobile. Prinsip Easy Operation diterapkan pada kontrol studio yang diperkuat, bukan wizard cerita baru. Jangan menyimpan preferensi global skill tanpa permintaan.
+
+### Pelaksanaan 21 November, antrean render
+
+Probe pada baseline menerima dua job serentak. Setelah perubahan, dua body tertunda menghasilkan satu HTTP 200 dan satu HTTP 409. JSON rusak dan dimensi invalid melepas jalur masuk, DELETE menunggu encoder berhenti dan job berikutnya diterima. Verifikasi lokal: 20 tes model/Director, 2 tes HTTP render dan build lulus.

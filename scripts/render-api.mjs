@@ -11,7 +11,7 @@ async function body(req, limit) {
   return Buffer.concat(chunks);
 }
 export function renderAPI() {
-  const jobs = new Map(); let root, ffmpeg;
+  const jobs = new Map(); let root, ffmpeg, active;
   function stopJob(job) {
     if (!job.done && !job.stopping) {
       job.stopping = true;
@@ -39,19 +39,20 @@ export function renderAPI() {
     if (req.headers['sec-fetch-site'] === 'cross-site') return json(res, 403, { error: 'Cross-site request rejected.' });
     try {
       if (req.method === 'GET' && parts[2] === 'status') {
-        const active = [...jobs.values()].find(j => !j.done && !j.error);
         return json(res, 200, { available: !!ffmpeg, busy: !!active, progress: active ? { received: active.received, frames: active.frames } : null, mode: 'deterministic', format: 'mp4', fps: [24, 25, 30] });
       }
       if (!ffmpeg) return json(res, 503, { error: 'FFmpeg belum tersedia. Instal FFmpeg atau atur WARKAI_FFMPEG.' });
       if (req.method === 'POST' && parts.length === 2) {
-        if ([...jobs.values()].some(j => !j.done && !j.error)) return json(res, 409, { error: 'Satu render sedang berjalan. Selesaikan atau batalkan dahulu.' });
         const input = JSON.parse((await body(req, 4096)).toString());
         const { width, height, fps, frames } = input;
         if (![width, height, frames].every(Number.isInteger) || width < 64 || height < 64 || width > 1920 || height > 1920 || width % 2 || height % 2 || ![24, 25, 30].includes(fps) || frames < 1 || frames > fps * 1800) throw new Error('Parameter render tidak valid.');
+        // No await between admission and registration. A partial request owns no encoder.
+        if (active) return json(res, 409, { error: 'Satu render sedang berjalan. Selesaikan atau batalkan dahulu.' });
         const id = randomUUID(), file = path.join(root, '.local/renders', `${id}.mp4`);
         const child = spawn(ffmpeg, ['-hide_banner','-loglevel','error','-y','-f','image2pipe','-framerate',String(fps),'-vcodec','png','-i','pipe:0','-an','-c:v','libx264','-preset','veryfast','-crf','19','-pix_fmt','yuv420p','-frames:v',String(frames),'-movflags','+faststart',file], { stdio: ['pipe','ignore','pipe'] });
         const job = { id, file, child, width, height, fps, frames, received: 0, done: false, error: null, stderr: '', lastActivity: Date.now(), accepting: false };
-        job.complete = new Promise(resolve => child.on('close', code => { job.done = true; if (code !== 0) job.error ||= job.stderr.slice(-1500) || 'FFmpeg gagal.'; resolve(); }));
+        active = job;
+        job.complete = new Promise(resolve => child.once('close', code => { active = null; job.done = true; if (code !== 0) job.error ||= job.stderr.slice(-1500) || 'FFmpeg gagal.'; resolve(); }));
         child.on('error', e => { job.error = e.message; }); child.stdin.on('error', e => { job.error ||= e.message; });
         child.stderr.on('data', d => { job.stderr = (job.stderr + d.toString()).slice(-2000); });
         jobs.set(id, job); return json(res, 200, { id, width, height, fps, frames });
