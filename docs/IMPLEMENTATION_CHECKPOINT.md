@@ -1,7 +1,7 @@
 # Checkpoint: penguatan engine Warkai Previz disetujui
 
 Tanggal: 21 November 2026, Asia/Jakarta.
-Status: IMPLEMENTASI DISETUJUI; checkpoint dibuat dahulu atas permintaan Mas Ardi karena token sesi menipis. Belum ada perubahan fungsional sesudah approval ini.
+Status terkini: penguatan engine lokal tersedia di commit `b749178`. Sebanyak 36 tes model/Director/visual, 4 tes API/render dan build produksi lulus. Empat MP4 dari UI diukur. Aragi berhasil membuat batch dari control-server lokal dan membaca kembali manifest serta snapshot. Batch kiriman pemanggil menunggu pengarahan Director. Bagian baseline dan urutan awal di bawah menyimpan konteks sebelum implementasi. Lihat bagian terakhir dan docs/QC.md untuk bukti terkini.
 
 ## Keputusan pengguna yang berlaku
 
@@ -46,7 +46,7 @@ Approval ini berlaku untuk implementasi bertahap dalam lingkup berikut. Tidak pe
 - Probe insert menunjukkan teks aksi dapat tersalin tanpa blocking. Perubahan durasi RAW tidak otomatis ripple EDIT; kebijakan manual perlu dinyatakan agar tidak terjadi pergeseran diam-diam.
 - Render film teknis sukses bukan creative approval. Konten SQ04/SQ09 revisi terakhir masih HOLD menurut QC Inara; jangan klaim seluruh film lolos.
 
-## Urutan kerja berikutnya
+## Urutan kerja yang dipakai saat implementasi
 
 ### Bagian pertama: andalkan render yang sudah ada
 
@@ -65,7 +65,7 @@ Approval ini berlaku untuk implementasi bertahap dalam lingkup berikut. Tidak pe
 
 ## Cara melanjutkan
 
-Baca checkpoint ini lebih dahulu. Approval implementasi sudah diberikan. Jangan mengulang perencanaan produk atau membangun Fondasi Terpadu R01. Mulai bagian pertama dan tuntaskan bertahap, dengan QC serta checkpoint. Proyek/media film, credentials, konfigurasi mesin dan isi cerita pengguna tidak masuk Git.
+Baca status terkini di awal dokumen dan bukti di docs/QC.md. Untuk melanjutkan review, buka Studio, pilih Export kemudian Hasil render lokal. Gunakan batch atau revisi sesuai kebutuhan Director. Proyek/media film, credentials, konfigurasi mesin dan isi cerita pengguna tidak masuk Git.
 
 Skill: senior-fullstack untuk implementasi/audit; anti-slop mode during dipilih pengguna dalam chat ini, dengan panduan UI/human/mobile. Prinsip Easy Operation diterapkan pada kontrol studio yang diperkuat, bukan wizard cerita baru. Jangan menyimpan preferensi global skill tanpa permintaan.
 

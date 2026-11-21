@@ -79,3 +79,7 @@ Uji HTTP dengan FFmpeg/ffprobe lokal mencakup dua POST tertunda, pembatalan dan 
 Uji UI pada origin lokal terpisah menggunakan dua karakter Pill dan cerita anonim. Dua klip Clean 720×1280 serta dua Director Breakdown 1280×720 masing-masing berisi 96 frame pada 24 fps (4 detik). Shot pertama melintasi batas klip di frame proyek 96. Kamera kedua mulai di frame proyek 151. QC Director memeriksa 151 frame shot pertama. Penilaian ini berlaku untuk fixture tersebut.
 
 Uji model mengambil 144 frame gerak Pill sebelum dan sesudah dua cut kamera. Posisi, rotasi, fase postur, aksi serta jeda diam cocok pada setiap frame. Uji juga mencakup kamera signed orbit, key yang diedit lewat perintah Director, rig key/fill dan pemulihan preset, tabrakan set serta occlusion/reveal.
+
+Safari pada origin QA terpisah juga memverifikasi edit key kamera pada frame 12 (X 4,25), pemilihan marker, penghapusan key, hold Pill 8 frame yang digunakan kedua kamera, serta fill pada 1,5 dan sakelar bayangan key. Blueprint dibaca kembali setelah perubahan.
+
+Uji pemanggil oleh Aragi dilakukan lewat server lokal terisolasi. POST plan lalu pembuatan batch Clean menghasilkan HTTP 201. Poll manifest dan snapshot mempertahankan hash cerita, kebutuhan produksi, arahan manual, shotIds, [0,96) dan [96,240) pada 24 fps. Batch tersebut berada pada tahap review Director. Pengujian tidak memakai layanan generate.
