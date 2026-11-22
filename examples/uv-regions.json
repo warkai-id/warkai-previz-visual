@@ -1,0 +1,187 @@
+{
+  "schema": "warkai-previz/2",
+  "name": "Independent UV region study",
+  "description": "General technical study: hinge panel, image cue, true black, local practical, daylight restore.",
+  "setting": "An open concrete courtyard with two stone columns, a wooden bench and an orbital sculpture. Ground plane at y=0. Units in meters.",
+  "aspect": "16:9",
+  "fps": 30,
+  "light": {
+    "preset": "golden",
+    "intensity": 3.5,
+    "azimuth": -35,
+    "elevation": 45,
+    "background": "#20252a",
+    "ground": "#30383e"
+  },
+  "actors": [
+    {
+      "id": "left",
+      "name": "Panel left",
+      "type": "panel",
+      "color": "#ffffff",
+      "position": [
+        -1.1,
+        0.5,
+        0
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "visible": true,
+      "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAYAAACinX6EAAAASUlEQVR4nO3QMQ0AMAgAMJTsRg7ad8/LkEFCetRA42X+SafuqBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQL2BzQhkKkAt7fiHQAAAABJRU5ErkJggg==",
+      "imageRegion": [
+        0,
+        0,
+        0.5,
+        1
+      ],
+      "unlit": true
+    },
+    {
+      "id": "right",
+      "name": "Panel right",
+      "type": "panel",
+      "color": "#ffffff",
+      "position": [
+        0.1,
+        0.5,
+        0
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "visible": true,
+      "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAYAAACinX6EAAAASUlEQVR4nO3QMQ0AMAgAMJTsRg7ad8/LkEFCetRA42X+SafuqBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQL2BzQhkKkAt7fiHQAAAABJRU5ErkJggg==",
+      "imageRegion": [
+        0.5,
+        0,
+        0.5,
+        1
+      ],
+      "unlit": true
+    }
+  ],
+  "shots": [
+    {
+      "id": "uv-shot-1",
+      "name": "Left red / right blue",
+      "duration": 1,
+      "size": "WS",
+      "purpose": "Hinge opens",
+      "action": "Hinge opens; technical cue only.",
+      "sound": "Subtle room tone. No dialogue or narration.",
+      "notes": "",
+      "edit": {
+        "sequence_id": "UV",
+        "job_id": "J01",
+        "shot_id": "UV1",
+        "raw_in": 0,
+        "raw_out": 1,
+        "sequence_in": 0
+      },
+      "camera": {
+        "movement": "static",
+        "easing": "smooth",
+        "start": {
+          "position": [
+            0,
+            1,
+            5
+          ],
+          "target": [
+            0,
+            1,
+            0
+          ],
+          "lens": 50
+        },
+        "end": {
+          "position": [
+            0,
+            1,
+            5
+          ],
+          "target": [
+            0,
+            1,
+            0
+          ],
+          "lens": 50
+        },
+        "aperture": 2.8,
+        "focus": 6
+      },
+      "blocking": [],
+      "states": []
+    },
+    {
+      "id": "uv-shot-2",
+      "name": "Regions swapped",
+      "duration": 1,
+      "size": "WS",
+      "purpose": "Hinge opens",
+      "action": "Hinge opens; technical cue only.",
+      "sound": "Subtle room tone. No dialogue or narration.",
+      "notes": "",
+      "edit": {
+        "sequence_id": "UV",
+        "job_id": "J01",
+        "shot_id": "UV2",
+        "raw_in": 0,
+        "raw_out": 1,
+        "sequence_in": 1
+      },
+      "camera": {
+        "movement": "static",
+        "easing": "smooth",
+        "start": {
+          "position": [
+            0,
+            1,
+            5
+          ],
+          "target": [
+            0,
+            1,
+            0
+          ],
+          "lens": 50
+        },
+        "end": {
+          "position": [
+            0,
+            1,
+            5
+          ],
+          "target": [
+            0,
+            1,
+            0
+          ],
+          "lens": 50
+        },
+        "aperture": 2.8,
+        "focus": 6
+      },
+      "blocking": [],
+      "states": [
+        {
+          "actorId": "left",
+          "imageRegion": [
+            0.5,
+            0,
+            0.5,
+            1
+          ]
+        },
+        {
+          "actorId": "right",
+          "imageRegion": [
+            0,
+            0,
+            0.5,
+            1
+          ]
+        }
+      ]
+    }
+  ]
+}

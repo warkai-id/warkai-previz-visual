@@ -1,0 +1,473 @@
+{
+  "schema": "warkai-previz/2",
+  "name": "Prop states & local light",
+  "description": "General technical study: hinge panel, image cue, true black, local practical, daylight restore.",
+  "setting": "An open concrete courtyard with two stone columns, a wooden bench and an orbital sculpture. Ground plane at y=0. Units in meters.",
+  "aspect": "16:9",
+  "fps": 30,
+  "light": {
+    "preset": "golden",
+    "intensity": 3.5,
+    "azimuth": -35,
+    "elevation": 45,
+    "background": "#dedbd0",
+    "ground": "#c9c3b3"
+  },
+  "actors": [
+    {
+      "id": "figure",
+      "name": "Pemeran",
+      "type": "pill-person",
+      "color": "#9dad8c",
+      "position": [
+        -1.1,
+        0,
+        0.1
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "visible": true
+    },
+    {
+      "id": "flap",
+      "name": "Panel engsel",
+      "type": "panel",
+      "color": "#c39254",
+      "position": [
+        0.6,
+        0.7,
+        0
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "dimensions": [
+        1,
+        0.8,
+        1
+      ],
+      "visible": true
+    },
+    {
+      "id": "screen",
+      "name": "Cue screen",
+      "type": "panel",
+      "color": "#ffffff",
+      "position": [
+        0.2,
+        0,
+        -0.6
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "dimensions": [
+        1.4,
+        1.2,
+        1
+      ],
+      "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAA8UlEQVR4nO3YsREDIRAEwQ+C/GP8DCRPJeNLJWDvxmCMtblpk+u+79fJu+gD6AlAH0BPAPoAegLQB9ATgD6AngD0AfQEoA+gJwD5+Bjjs+MAvuNJBATgKZ5CaAf4FU8gtAL8E9+N0AYwE9+J0AKwEt+FUA6wE9+BUAqQiK9GKANIxlcilABUxFchxAEq4ysQogAd8WmEGEBnfBIhAkDEpxC2Acj4BMIWAB2eQFgGoINTCEsAdGgSYRqADkwjTAHQYRUIfokJIIAAAggggAACCCCAAAIIIIAAApw2AegD6AlAH0BPAPoAegLQB9ATgD6A3htO5OMjNv6QtwAAAABJRU5ErkJggg==",
+      "unlit": true,
+      "visible": true
+    },
+    {
+      "id": "led",
+      "name": "LED cue",
+      "type": "box",
+      "color": "#d29b45",
+      "position": [
+        1.4,
+        0.7,
+        0.2
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "dimensions": [
+        0.15,
+        0.15,
+        0.15
+      ],
+      "visible": true
+    },
+    {
+      "id": "phone",
+      "name": "Phone plate",
+      "type": "panel",
+      "color": "#ffffff",
+      "position": [
+        -0.7,
+        1.15,
+        0.5
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "dimensions": [
+        0.16,
+        0.28,
+        1
+      ],
+      "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAkklEQVR4nO3QQREAAAiAMPuX1hh7yBJwzD43OkBrgA7QGqADtAboAK0BOkBrgA7QGqADtAboAK0BOkBrgA7QGqADtAboAK0BOkBrgA7QGqADtAboAK0BOkBrgA7QGqADtAboAK0BOkBrgA7QGqADtAboAK0BOkBrgA7QGqADtAboAK0BOkBrgA7QGqADtAboAO0ARtDDsqXe37wAAAAASUVORK5CYII=",
+      "unlit": true,
+      "visible": true
+    },
+    {
+      "id": "table",
+      "name": "Meja",
+      "type": "box",
+      "color": "#927354",
+      "position": [
+        0.8,
+        0,
+        -0.2
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "dimensions": [
+        1.5,
+        0.65,
+        0.7
+      ],
+      "visible": true
+    }
+  ],
+  "shots": [
+    {
+      "id": "state-shot-0",
+      "name": "Hinge opens",
+      "duration": 2,
+      "size": "WS",
+      "purpose": "Hinge opens",
+      "action": "Hinge opens; technical cue only.",
+      "sound": "Subtle room tone. No dialogue or narration.",
+      "notes": "",
+      "edit": {
+        "sequence_id": "SQ-DEMO",
+        "job_id": "J01",
+        "shot_id": "S1",
+        "raw_in": 0,
+        "raw_out": 2,
+        "sequence_in": 0
+      },
+      "camera": {
+        "movement": "static",
+        "easing": "smooth",
+        "start": {
+          "position": [
+            3,
+            2.1,
+            5
+          ],
+          "target": [
+            0,
+            0.9,
+            0
+          ],
+          "lens": 42
+        },
+        "end": {
+          "position": [
+            3,
+            2.1,
+            5
+          ],
+          "target": [
+            0,
+            0.9,
+            0
+          ],
+          "lens": 42
+        },
+        "aperture": 2.8,
+        "focus": 6
+      },
+      "blocking": [
+        {
+          "actorId": "flap",
+          "start": [
+            0.6,
+            0.7,
+            0
+          ],
+          "end": [
+            0.6,
+            0.7,
+            0
+          ],
+          "action": "hold",
+          "pitchStart": 0,
+          "pitchEnd": -100
+        }
+      ],
+      "states": [
+        {
+          "actorId": "screen",
+          "visible": false
+        },
+        {
+          "actorId": "phone",
+          "visible": false
+        }
+      ]
+    },
+    {
+      "id": "state-shot-1",
+      "name": "Cue screen ON",
+      "duration": 2,
+      "size": "WS",
+      "purpose": "Cue screen ON",
+      "action": "Cue screen ON; technical cue only.",
+      "sound": "Subtle room tone. No dialogue or narration.",
+      "notes": "",
+      "edit": {
+        "sequence_id": "SQ-DEMO",
+        "job_id": "J01",
+        "shot_id": "S2",
+        "raw_in": 0,
+        "raw_out": 2,
+        "sequence_in": 2
+      },
+      "camera": {
+        "movement": "static",
+        "easing": "smooth",
+        "start": {
+          "position": [
+            3,
+            2.1,
+            5
+          ],
+          "target": [
+            0,
+            0.9,
+            0
+          ],
+          "lens": 42
+        },
+        "end": {
+          "position": [
+            3,
+            2.1,
+            5
+          ],
+          "target": [
+            0,
+            0.9,
+            0
+          ],
+          "lens": 42
+        },
+        "aperture": 2.8,
+        "focus": 6
+      },
+      "blocking": [],
+      "states": [
+        {
+          "actorId": "flap",
+          "visible": false
+        },
+        {
+          "actorId": "phone",
+          "visible": false
+        },
+        {
+          "actorId": "led",
+          "color": "#e8a637",
+          "emissive": 2,
+          "note": "LED cue ON"
+        }
+      ]
+    },
+    {
+      "id": "state-shot-2",
+      "name": "True black",
+      "duration": 2,
+      "size": "WS",
+      "purpose": "True black",
+      "action": "True black; technical cue only.",
+      "sound": "Subtle room tone. No dialogue or narration.",
+      "notes": "",
+      "edit": {
+        "sequence_id": "SQ-DEMO",
+        "job_id": "J01",
+        "shot_id": "S3",
+        "raw_in": 0,
+        "raw_out": 2,
+        "sequence_in": 4
+      },
+      "camera": {
+        "movement": "static",
+        "easing": "smooth",
+        "start": {
+          "position": [
+            3,
+            2.1,
+            5
+          ],
+          "target": [
+            0,
+            0.9,
+            0
+          ],
+          "lens": 42
+        },
+        "end": {
+          "position": [
+            3,
+            2.1,
+            5
+          ],
+          "target": [
+            0,
+            0.9,
+            0
+          ],
+          "lens": 42
+        },
+        "aperture": 2.8,
+        "focus": 6
+      },
+      "blocking": [],
+      "states": [],
+      "light": {
+        "mode": "black"
+      }
+    },
+    {
+      "id": "state-shot-3",
+      "name": "Local phone light",
+      "duration": 2,
+      "size": "WS",
+      "purpose": "Local phone light",
+      "action": "Local phone light; technical cue only.",
+      "sound": "Subtle room tone. No dialogue or narration.",
+      "notes": "",
+      "edit": {
+        "sequence_id": "SQ-DEMO",
+        "job_id": "J01",
+        "shot_id": "S4",
+        "raw_in": 0,
+        "raw_out": 2,
+        "sequence_in": 6
+      },
+      "camera": {
+        "movement": "static",
+        "easing": "smooth",
+        "start": {
+          "position": [
+            3,
+            2.1,
+            5
+          ],
+          "target": [
+            0,
+            0.9,
+            0
+          ],
+          "lens": 42
+        },
+        "end": {
+          "position": [
+            3,
+            2.1,
+            5
+          ],
+          "target": [
+            0,
+            0.9,
+            0
+          ],
+          "lens": 42
+        },
+        "aperture": 2.8,
+        "focus": 6
+      },
+      "blocking": [],
+      "states": [
+        {
+          "actorId": "screen",
+          "visible": false
+        },
+        {
+          "actorId": "led",
+          "visible": false
+        },
+        {
+          "actorId": "flap",
+          "visible": false
+        }
+      ],
+      "light": {
+        "mode": "local",
+        "practicals": [
+          {
+            "actorId": "phone",
+            "offset": [
+              0,
+              0.15,
+              0.3
+            ],
+            "color": "#ffffff",
+            "intensity": 9,
+            "distance": 3
+          }
+        ]
+      }
+    },
+    {
+      "id": "state-shot-4",
+      "name": "Scene restored",
+      "duration": 1,
+      "size": "WS",
+      "purpose": "Scene restored",
+      "action": "Scene restored; technical cue only.",
+      "sound": "Subtle room tone. No dialogue or narration.",
+      "notes": "",
+      "edit": {
+        "sequence_id": "SQ-DEMO",
+        "job_id": "J01",
+        "shot_id": "S5",
+        "raw_in": 0,
+        "raw_out": 1,
+        "sequence_in": 8
+      },
+      "camera": {
+        "movement": "static",
+        "easing": "smooth",
+        "start": {
+          "position": [
+            3,
+            2.1,
+            5
+          ],
+          "target": [
+            0,
+            0.9,
+            0
+          ],
+          "lens": 42
+        },
+        "end": {
+          "position": [
+            3,
+            2.1,
+            5
+          ],
+          "target": [
+            0,
+            0.9,
+            0
+          ],
+          "lens": 42
+        },
+        "aperture": 2.8,
+        "focus": 6
+      },
+      "blocking": [],
+      "states": [
+        {
+          "actorId": "screen",
+          "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAkUlEQVR4nO3QsQ0AMQwCwOyS/dfKGv8zUFhC1hW0CO68974k994o7f2nfSAAAAAAAAAAAAAAAEMA2w6l/QDaBwIAAAAAAAAAAACYAth2KO0H0D4QAAAAAAAAAAAAwBTAtkNpP4D2gQAAAAAAAAAAAACmALYdSvsBtA8EAAAAAAAAAAAAMAWw7VDaD6B9IIDh/h+hqhOItiWsewAAAABJRU5ErkJggg==",
+          "unlit": true,
+          "note": "Image cue changed in this shot"
+        }
+      ]
+    }
+  ]
+}

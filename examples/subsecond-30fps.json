@@ -17,7 +17,7 @@
     {
       "id": "actor-a",
       "name": "A · Penjelajah",
-      "type": "human",
+      "type": "pill-person",
       "color": "#e5aa57",
       "position": [
         -1.9,

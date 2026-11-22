@@ -1,0 +1,101 @@
+{
+  "schema": "warkai-previz/2",
+  "name": "Named pill character study",
+  "description": "Dua sosok bertemu di sebuah ruang terbuka. Sebuah instalasi orbital mulai bergerak.",
+  "setting": "An open concrete courtyard with two stone columns, a wooden bench and an orbital sculpture. Ground plane at y=0. Units in meters.",
+  "aspect": "16:9",
+  "fps": 30,
+  "light": {
+    "preset": "golden",
+    "intensity": 3.5,
+    "azimuth": -35,
+    "elevation": 45,
+    "background": "#dedbd0",
+    "ground": "#c9c3b3"
+  },
+  "actors": [
+    {
+      "id": "actor-a",
+      "name": "Karakter Biru",
+      "type": "pill-person",
+      "color": "#278ec6",
+      "position": [
+        -0.7,
+        0,
+        0
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "visible": true,
+      "characterTag": "CHAR_001"
+    },
+    {
+      "id": "actor-b",
+      "name": "Karakter Oranye",
+      "type": "pill-person",
+      "color": "#d57923",
+      "position": [
+        0.7,
+        0,
+        0
+      ],
+      "rotation": 0,
+      "scale": 1,
+      "visible": true,
+      "characterTag": "CHAR_002"
+    }
+  ],
+  "shots": [
+    {
+      "id": "shot-6fcbcea9",
+      "name": "Pill kepala bola",
+      "duration": 2,
+      "size": "FS",
+      "purpose": "Establish the distance between two strangers.",
+      "action": "Karakter Biru / CHAR_001 di kiri, Karakter Oranye / CHAR_002 di kanan. Kedua pill diam.",
+      "sound": "Subtle room tone. No dialogue or narration.",
+      "notes": "",
+      "edit": {
+        "sequence_id": "SQ01",
+        "job_id": "J01",
+        "shot_id": "01A",
+        "raw_in": 0,
+        "raw_out": 2,
+        "sequence_in": 0
+      },
+      "camera": {
+        "movement": "static",
+        "easing": "smooth",
+        "start": {
+          "position": [
+            0,
+            1.2,
+            6
+          ],
+          "target": [
+            0,
+            0.95,
+            0
+          ],
+          "lens": 50
+        },
+        "end": {
+          "position": [
+            0,
+            1.2,
+            6
+          ],
+          "target": [
+            0,
+            0.95,
+            0
+          ],
+          "lens": 50
+        },
+        "aperture": 2.8,
+        "focus": 6
+      },
+      "blocking": []
+    }
+  ]
+}

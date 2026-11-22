@@ -1,3 +1,23 @@
+# QC — CP002 / 0.2.0
+
+Diuji lokal pada Mac, 16 November 2026. Bukti CP001 di bagian berikut adalah historis; tidak menggantikan uji fitur baru.
+
+| Area CP002 | Bukti |
+|---|---|
+| Pill kepala bola | UI Chrome native dan MP4 nyata 1280×720 / 30fps / 60 frame / 2 detik; body, bar, kepala terpisah tampak |
+| Identitas | Validator menolak nama kosong/duplikat dan kode duplikat; migrasi human→pill-person; prompt berisi pemetaan nama/kode |
+| Camera line | UI menunjukkan lingkaran solid dan panah arah; tombol OUT memilih gizmo; drag mengubah Z OUT 5→5,278, Undo memulihkan |
+| Orbit 360 | MP4 nyata 1280×720 / 30fps / 120 frame / 4 detik; frame 0/30/60/90 diperiksa, posisi depan/samping/belakang/samping berganti |
+| Director | UI menerima dolly 50mm 0,9detik dengan koordinat IN/OUT; lensa menjadi 50mm, RAW27frame. Revisi teknis kini menjaga aksi; grammar aksi eksplisit diuji unit |
+| Insert | UI menyisip sesudah shot aktif; jumlah 1→2, kamera insert memakai key OUT, total 0,9→5,9detik. Unit memeriksa ID dan offset EDIT |
+| Delete/context | Tambah kubus 2→3objek, Backspace 3→2; Backspace kedua tidak menghapus karakter; klik kanan→Hapus dan Undo berjalan |
+| Dokumen | TXT/MD, DOCX, PDF fixture dibaca melalui modul nyata; PDF juga diimpor lewat UI lalu ditinjau/dibuka menjadi dua shot 2+3detik, Alya CHAR001/Bima CHAR002 |
+| State/light | MP49detik / 270frame30fps; flap, plate, 60frame trueblack, local phone light lalu scene reset. Seluruh piksel60frame black terdekode RGB0 |
+| Crop | Dua panel satu sumber gambar dengan crop berbeda dan pertukaran per shot; contact sheet diperiksa; JSON/YAML hasil UI semantik identik |
+| Konten terpisah | SQ09 dan SQ07 Pill masing-masing 11detik/330frame30fps. Export teknis selesai, QC visual pemilik konten tetap terpisah |
+
+Pemeriksaan akhir checkpoint: 20 tes model/Director lulus; 1 tes integrasi render lulus; build berhasil (warning ukuran chunk Three.js/PDF); audit dependensi 0 temuan; syntax launcher dan git diff --check lulus. Batas yang belum diuji: DOCX melalui file picker browser (modul ekstraksi fixture lulus), PDF scan/OCR, Safari/Windows/Linux, semua rasio, fallback capture sebagai jalur utama, serta responsif CP002 pada layar kecil. Label key dapat berdekatan pada posisi yang sama; tombol key inspector tetap tersedia.
+
 # QC — local release 0.1.0
 
 Diuji pada sesi 15–16 November 2026 pada Mac lokal, Node 22.23.4 dan browser dalam Codex. Hasil di bawah adalah pemeriksaan nyata; belum membuktikan kompatibilitas seluruh browser/perangkat.
@@ -51,3 +71,15 @@ Angka diverifikasi dengan `ffprobe -count_frames`. Frame start/end dan contact s
 - Uji render memakai 16:9. Pilihan rasio lain tersedia dengan matematik dimensi rasio asli, tetapi belum semuanya memiliki video QC tersendiri.
 - Audio, DoF blur, rig realistis, auto-contact kursi/lantai, head-yaw terpisah, multiuser dan video-generator API belum diimplementasikan.
 - QC framing atau prop pada proyek film adalah pekerjaan pemilik konten; keberhasilan ekspor tidak sama dengan persetujuan kreatif sebuah shot.
+
+## Engine dan ekspor per klip, 21 November 2026
+
+Uji HTTP dengan FFmpeg/ffprobe lokal mencakup dua POST tertunda, pembatalan dan pemakaian ulang slot encoder, pemulihan batch setelah restart serta dua MP4 dari plan Aragi. Setiap klip memiliki ukuran, durasi, jumlah frame dan SHA-256 yang diukur.
+
+Uji UI pada origin lokal terpisah menggunakan dua karakter Pill dan cerita anonim. Dua klip Clean 720×1280 serta dua Director Breakdown 1280×720 masing-masing berisi 96 frame pada 24 fps (4 detik). Shot pertama melintasi batas klip di frame proyek 96. Kamera kedua mulai di frame proyek 151. QC Director memeriksa 151 frame shot pertama. Penilaian ini berlaku untuk fixture tersebut.
+
+Uji model mengambil 144 frame gerak Pill sebelum dan sesudah dua cut kamera. Posisi, rotasi, fase postur, aksi serta jeda diam cocok pada setiap frame. Uji juga mencakup kamera signed orbit, key yang diedit lewat perintah Director, rig key/fill dan pemulihan preset, tabrakan set serta occlusion/reveal.
+
+Safari pada origin QA terpisah juga memverifikasi edit key kamera pada frame 12 (X 4,25), pemilihan marker, penghapusan key, hold Pill 8 frame yang digunakan kedua kamera, serta fill pada 1,5 dan sakelar bayangan key. Blueprint dibaca kembali setelah perubahan.
+
+Uji pemanggil oleh Aragi dilakukan lewat server lokal terisolasi. POST plan lalu pembuatan batch Clean menghasilkan HTTP 201. Poll manifest dan snapshot mempertahankan hash cerita, kebutuhan produksi, arahan manual, shotIds, [0,96) dan [96,240) pada 24 fps. Batch tersebut berada pada tahap review Director. Pengujian tidak memakai layanan generate.
